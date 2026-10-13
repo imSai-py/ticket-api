@@ -5,6 +5,10 @@ echo "========================================"
 echo "1. Testing Python ticket-api (pytest)..."
 echo "========================================"
 python -m pytest tests -v
+if command -v ruff &> /dev/null; then
+    echo "Checking Python formatting and linting (ruff)..."
+    ruff check .
+fi
 
 if [ -f "frontend/package.json" ]; then
     echo ""

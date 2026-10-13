@@ -73,13 +73,28 @@ def tokenize(text: str) -> List[str]:
     return [t for t in tokens if len(t) > 1 and t not in STOP_WORDS]
 
 
+def extract_and_sanitize_input(
+    subject_or_request: Any, text: Optional[str] = None, max_total_chars: int = 4000
+) -> Tuple[str, str]:
+    """Extract and sanitize ticket subject and body guaranteeing total combined length budget."""
+    if hasattr(subject_or_request, "subject") and hasattr(subject_or_request, "text"):
+        raw_subject = str(subject_or_request.subject or "")
+        raw_text = str(subject_or_request.text or "")
+    else:
+        raw_subject = str(subject_or_request or "")
+        raw_text = str(text or "")
+
+    clean_subject = raw_subject.strip()[:1000]
+    remaining_budget = max(0, max_total_chars - len(clean_subject))
+    clean_text = raw_text.strip()[:remaining_budget]
+    return clean_subject, clean_text
+
+
 def extract_subject_and_text(
     subject_or_request: Any, text: Optional[str] = None
 ) -> Tuple[str, str]:
     """Extract subject and text strings from a request object or positional parameters."""
-    if hasattr(subject_or_request, "subject") and hasattr(subject_or_request, "text"):
-        return str(subject_or_request.subject or ""), str(subject_or_request.text or "")
-    return str(subject_or_request or ""), str(text or "")
+    return extract_and_sanitize_input(subject_or_request, text)
 
 
 def sanitize_input_text(text: str, max_chars: int = 4000) -> str:
@@ -172,9 +187,7 @@ class KBRetriever:
         min_score: float = 0.5,
     ) -> List[KBArticle]:
         """Score articles against ticket subject and body and return top matches."""
-        subject_val, text_val = extract_subject_and_text(subject_or_request, text)
-        clean_subject = sanitize_input_text(subject_val, max_chars=4000)
-        clean_text = sanitize_input_text(text_val, max_chars=4000)
+        clean_subject, clean_text = extract_and_sanitize_input(subject_or_request, text)
         query_text = f"{clean_subject} {clean_text}"
         query_tokens = tokenize(query_text)
         if not query_tokens or not self.articles:
