@@ -124,7 +124,7 @@ def test_triage_sample_s6_unsupported_payment():
     mock_reply = TriageResponse(
         category=CategoryEnum.BILLING,
         priority=PriorityEnum.LOW,
-        suggested_reply="We accept credit card, debit card, and PayPal. We do not accept cryptocurrency. A teammate can answer further questions.",
+        suggested_reply="We accept major credit and debit cards. Other payment methods like Bitcoin or PayPal are not currently supported. A teammate can answer further questions.",
         article_ids=["KB-003"],
     )
     with patch("app.triage_ai.call_gemini_model", return_value=mock_reply) as mock_model:
@@ -276,8 +276,8 @@ def test_triage_hallucinated_article_ids_filtered_out():
 
 def test_triage_combined_input_length_budget_enforced():
     # Enforces 4000 total combined character budget across subject and body
-    long_subject = "A" * 1500  # Will be truncated to 1000
-    long_body = "B" * 5000     # Will be truncated to 4000 - 1000 = 3000
+    long_subject = "A" * 1500  # Allowed up to combined 4000 limit
+    long_body = "B" * 5000     # Truncated to 4000 - 1500 = 2500
     mock_reply = TriageResponse(
         category=CategoryEnum.TECHNICAL,
         priority=PriorityEnum.NORMAL,
@@ -293,10 +293,10 @@ def test_triage_combined_input_length_budget_enforced():
         assert mock_model.called
         sent_prompt = mock_model.call_args[0][0]
         # Verify customer ticket content in prompt does not exceed budget
-        assert "A" * 1000 in sent_prompt
-        assert "A" * 1001 not in sent_prompt
-        assert "B" * 3000 in sent_prompt
-        assert "B" * 3001 not in sent_prompt
+        assert "A" * 1500 in sent_prompt
+        assert "A" * 1501 not in sent_prompt
+        assert "B" * 2500 in sent_prompt
+        assert "B" * 2501 not in sent_prompt
 
 
 def test_triage_model_failure_unclassified_defaults_to_technical():

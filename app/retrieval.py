@@ -78,31 +78,16 @@ def extract_and_sanitize_input(
 ) -> Tuple[str, str]:
     """Extract and sanitize ticket subject and body guaranteeing total combined length budget."""
     if hasattr(subject_or_request, "subject") and hasattr(subject_or_request, "text"):
-        raw_subject = str(subject_or_request.subject or "")
-        raw_text = str(subject_or_request.text or "")
+        raw_subject = str(getattr(subject_or_request, "subject", "") or "")
+        raw_text = str(getattr(subject_or_request, "text", "") or "")
     else:
         raw_subject = str(subject_or_request or "")
         raw_text = str(text or "")
 
-    clean_subject = raw_subject.strip()[:1000]
+    clean_subject = raw_subject.strip()[:max_total_chars]
     remaining_budget = max(0, max_total_chars - len(clean_subject))
     clean_text = raw_text.strip()[:remaining_budget]
     return clean_subject, clean_text
-
-
-def extract_subject_and_text(
-    subject_or_request: Any, text: Optional[str] = None
-) -> Tuple[str, str]:
-    """Extract subject and text strings from a request object or positional parameters."""
-    return extract_and_sanitize_input(subject_or_request, text)
-
-
-def sanitize_input_text(text: str, max_chars: int = 4000) -> str:
-    """Sanitize and limit input string to maximum character length."""
-    cleaned = (text or "").strip()
-    if len(cleaned) > max_chars:
-        return cleaned[:max_chars]
-    return cleaned
 
 
 BM25_K1: float = 1.5
