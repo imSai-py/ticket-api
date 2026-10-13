@@ -52,9 +52,13 @@ def test_legacy_frontend_month_formatting():
     assert "d.getMonth() + 1" in html
 
 
-def test_summary_uses_day1_metrics_calculation():
-    # Direct contract test ensuring summary endpoint uses Day 1 calculation logic
-    from app.summary_service import compute_metrics_from_tickets
-    metrics, _ = compute_metrics_from_tickets([])
-    assert metrics.overall_average_seconds is None
-    assert metrics.overall_average_hours() == 0.0
+def test_summary_endpoint_contract_compliance():
+    # Direct contract test ensuring summary endpoint computes Day 1 metrics through HTTP interface
+    response = client.get("/summary")
+    assert response.status_code == 200
+    data = response.json()
+    assert "total" in data
+    assert "average_resolution_hours" in data
+    assert "category_averages" in data
+    assert "skipped_tickets" in data
+    assert data["average_resolution_hours"] == 25.27

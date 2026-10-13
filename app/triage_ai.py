@@ -34,15 +34,41 @@ CRITICAL RULES:
 
 def get_fallback_triage(
     reason: str = "External AI service unavailable",
+    subject: str = "",
+    text: str = "",
 ) -> TriageResponse:
-    """Return safe fallback triage payload when model cannot be called."""
+    """Return safe fallback triage payload with heuristic keyword classification."""
     logger.warning("Using fallback triage response: %s", reason)
+    combined = f"{subject} {text}".lower()
+
+    # Rule-based priority determination
+    if any(k in combined for k in ["urgent", "lockout", "locked out", "emergency", "asap"]):
+        priority = PriorityEnum.URGENT
+    elif any(k in combined for k in ["cannot access", "not working", "crash", "freeze"]):
+        priority = PriorityEnum.HIGH
+    else:
+        priority = PriorityEnum.NORMAL
+
+    # Rule-based category determination
+    if any(k in combined for k in ["login", "password", "acceso", "cuenta", "contrase"]):
+        category = CategoryEnum.LOGIN
+    elif any(k in combined for k in ["refund", "money back", "reembolso", "devoluc"]):
+        category = CategoryEnum.REFUNDS
+    elif any(k in combined for k in ["bill", "charge", "invoice", "payment", "factur", "tarjeta", "subscri"]):
+        category = CategoryEnum.BILLING
+    elif any(k in combined for k in ["ship", "delivery", "track", "carrier", "order", "envio", "entreg"]):
+        category = CategoryEnum.SHIPPING
+    elif any(k in combined for k in ["crash", "freeze", "bug", "app", "falla", "error"]):
+        category = CategoryEnum.TECHNICAL
+    else:
+        category = CategoryEnum.ACCOUNT
+
     return TriageResponse(
-        category=CategoryEnum.TECHNICAL,
-        priority=PriorityEnum.NORMAL,
+        category=category,
+        priority=priority,
         suggested_reply=(
-            "Thank you for contacting customer support. Our team has received your ticket "
-            "and a support specialist will review it and follow up with you shortly."
+            "Thank you for contacting customer support. Our automated assistant encountered a temporary service issue, "
+            "and a customer support representative will review your ticket and follow up with you shortly."
         ),
         article_ids=[],
     )
@@ -88,7 +114,7 @@ def classify_and_reply(
 ) -> TriageResponse:
     """Classify ticket and generate grounded reply behind a swappable interface."""
     subject_val, text_val = extract_subject_and_text(subject_or_request, text)
-    clean_subject = sanitize_input_text(subject_val, max_chars=400)
+    clean_subject = sanitize_input_text(subject_val, max_chars=4000)
     clean_text = sanitize_input_text(text_val, max_chars=4000)
 
     # Format retrieved knowledge base articles using retriever class method
@@ -107,7 +133,19 @@ Body: {clean_text}
         if matched_articles is not None:
             allowed_ids = {a.article_id for a in matched_articles}
             res.article_ids = [aid for aid in res.article_ids if aid in allowed_ids]
+
+        if not matched_articles:
+            res.article_ids = []
+            lower_reply = res.suggested_reply.lower()
+            if not any(k in lower_reply for k in ["specialist", "human", "representative", "teammate", "follow up"]):
+                res.suggested_reply = (
+                    "Thank you for reaching out. A customer support representative will review your request shortly."
+                )
         return res
     except Exception as exc:
         logger.error("Failed during model execution in classify_and_reply: %s", exc)
-        return get_fallback_triage(f"Model invocation failed: {exc}")
+        return get_fallback_triage(
+            f"Model invocation failed: {exc}",
+            subject=clean_subject,
+            text=clean_text,
+        )

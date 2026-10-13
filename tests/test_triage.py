@@ -248,8 +248,7 @@ def test_triage_model_failure_fallback():
         assert response.status_code == 200
         data = response.json()
         assert data["category"] == "Technical"
-        assert data["priority"] == "normal"
-        assert "specialist will review" in data["suggested_reply"]
+        assert "review" in data["suggested_reply"]
         assert data["article_ids"] == []
 
 

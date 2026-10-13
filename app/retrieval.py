@@ -173,7 +173,7 @@ class KBRetriever:
     ) -> List[KBArticle]:
         """Score articles against ticket subject and body and return top matches."""
         subject_val, text_val = extract_subject_and_text(subject_or_request, text)
-        clean_subject = sanitize_input_text(subject_val, max_chars=400)
+        clean_subject = sanitize_input_text(subject_val, max_chars=4000)
         clean_text = sanitize_input_text(text_val, max_chars=4000)
         query_text = f"{clean_subject} {clean_text}"
         query_tokens = tokenize(query_text)

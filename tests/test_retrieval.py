@@ -62,8 +62,9 @@ def test_retrieve_multilingual_spanish_query_matches_password_reset():
     assert results[0].article_id == "KB-001"
 
 
-def test_tokenize_supports_unicode_characters():
-    from app.retrieval import tokenize
-    tokens = tokenize("Olvidé mi contraseña y cuenta")
-    assert "contraseña" in tokens
-    assert "cuenta" in tokens
+def test_retrieve_unicode_characters_matches_article():
+    # Verifies retrieval processes accented characters like 'contraseña' through public retrieve method
+    retriever = KBRetriever()
+    results = retriever.retrieve("Olvidé contraseña", "No puedo ingresar mi contraseña")
+    assert len(results) > 0
+    assert results[0].article_id == "KB-001"
