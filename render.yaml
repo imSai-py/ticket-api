@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: ticket-api
+    env: docker
+    plan: free
+    dockerfilePath: Dockerfile
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: TICKETS_DATA_PATH
+        value: data/tickets_sample.csv
+      - key: GEMINI_API_KEY
+        sync: false
