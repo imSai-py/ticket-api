@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.retrieval import KBRetriever, extract_and_sanitize_input
+from app.retrieval import KBRetriever
 from app.schemas import TriageRequest, TriageResponse
 from app.triage_ai import classify_and_reply
 from ticket_summary import compute_metrics, parse_iso_timestamp
@@ -101,9 +101,8 @@ def summary():
 
 @app.post("/triage", response_model=TriageResponse)
 def triage(req: TriageRequest):
-    clean_subject, clean_text = extract_and_sanitize_input(req.subject, req.text)
-    matched = retriever.retrieve(clean_subject, clean_text)
-    return classify_and_reply(clean_subject, clean_text, matched_articles=matched)
+    matched = retriever.retrieve(req.subject, req.text)
+    return classify_and_reply(req.subject, req.text, matched_articles=matched)
 
 
 app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")

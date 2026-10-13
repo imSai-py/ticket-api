@@ -78,5 +78,5 @@ Following the legacy `README.md` instructions step-by-step produced the followin
 - **How it was found**:
   Compared endpoint output against Day 1 metrics computed from `tickets_sample.csv` and verified with an automated test in `tests/test_api.py`.
 - **How it was fixed & Day 1 Decision**:
-  Integrated the Day 1 `TicketMetrics` calculation engine into `app/summary_service.py`. The calculation computes resolution duration strictly across tickets with valid resolved timestamps and statuses matching `resolved` or `closed`.
+  Integrated the Day 1 `TicketMetrics` calculation engine in `ticket_summary.py` directly into `app/main.py`. The calculation computes resolution duration strictly across tickets with valid resolved timestamps and statuses matching `resolved` or `closed`.
   - **Decision on Disagreement**: We decided that only resolved tickets must be included in resolution time metrics. Unresolved tickets are tracked separately under `skipped_tickets` so operational reporting remains mathematically sound without breaking backward compatibility for `total`, `by_category`, and `average_resolution_hours`.
