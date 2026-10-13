@@ -15,20 +15,20 @@ def test_triage_empty_input_returns_422():
 
 
 def test_triage_whitespace_input_returns_422():
-    # Matches Sample S4 in sample_tickets.json
-    response = client.post("/triage", json={"subject": "   ", "text": "   "})
+    # Sample S4: subject="", text="   "
+    response = client.post("/triage", json={"subject": "", "text": "   "})
     assert response.status_code == 422
 
 
-def test_triage_valid_login_ticket_mocked():
-    mock_response = TriageResponse(
+def test_triage_sample_s1_login():
+    # Sample S1: Cannot log in
+    mock_reply = TriageResponse(
         category=CategoryEnum.LOGIN,
         priority=PriorityEnum.HIGH,
         suggested_reply="Use 'Forgot password' on the sign-in page. The reset email arrives within 10 minutes.",
         article_ids=["KB-001"],
     )
-
-    with patch("app.main.classify_and_reply", return_value=mock_response):
+    with patch("app.triage_ai.call_gemini_model", return_value=mock_reply) as mock_model:
         response = client.post(
             "/triage",
             json={
@@ -41,18 +41,19 @@ def test_triage_valid_login_ticket_mocked():
         assert data["category"] == "Login"
         assert data["priority"] == "high"
         assert "KB-001" in data["article_ids"]
-        assert "Forgot password" in data["suggested_reply"]
+        assert mock_model.called
+        assert "KB-001" in mock_model.call_args[0][0]
 
 
-def test_triage_refund_ticket_mocked():
-    mock_response = TriageResponse(
+def test_triage_sample_s2_refund():
+    # Sample S2: Refund please
+    mock_reply = TriageResponse(
         category=CategoryEnum.REFUNDS,
         priority=PriorityEnum.NORMAL,
         suggested_reply="Refund requests are eligible within 30 days of purchase and take 5-7 business days to process.",
         article_ids=["KB-002"],
     )
-
-    with patch("app.main.classify_and_reply", return_value=mock_response):
+    with patch("app.triage_ai.call_gemini_model", return_value=mock_reply) as mock_model:
         response = client.post(
             "/triage",
             json={
@@ -65,21 +66,46 @@ def test_triage_refund_ticket_mocked():
         assert data["category"] == "Refunds"
         assert data["priority"] == "normal"
         assert "KB-002" in data["article_ids"]
+        assert mock_model.called
+        assert "KB-002" in mock_model.call_args[0][0]
 
 
-def test_triage_long_input_handled_cleanly():
-    # Matches Sample S5 (repetitive text > 4000 chars)
+def test_triage_sample_s3_shipping():
+    # Sample S3: Where is my order?
+    mock_reply = TriageResponse(
+        category=CategoryEnum.SHIPPING,
+        priority=PriorityEnum.NORMAL,
+        suggested_reply="If tracking has not updated after 10 days, please contact support for a replacement or refund.",
+        article_ids=["KB-004"],
+    )
+    with patch("app.triage_ai.call_gemini_model", return_value=mock_reply) as mock_model:
+        response = client.post(
+            "/triage",
+            json={
+                "subject": "Where is my order?",
+                "text": "I ordered 12 days ago, it shipped 11 days ago and still nothing. Tracking has not updated.",
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["category"] == "Shipping"
+        assert "KB-004" in data["article_ids"]
+        assert mock_model.called
+        assert "KB-004" in mock_model.call_args[0][0]
+
+
+def test_triage_sample_s5_long_input():
+    # Sample S5: App keeps freezing (>4,000 characters repeated)
     long_text = "I have been trying to use the app and it keeps freezing on the report screen. " * 80
     assert len(long_text) > 4000
 
-    mock_response = TriageResponse(
+    mock_reply = TriageResponse(
         category=CategoryEnum.TECHNICAL,
         priority=PriorityEnum.NORMAL,
         suggested_reply="Please try force closing the app, restarting your device, and clearing the app cache.",
         article_ids=["KB-005"],
     )
-
-    with patch("app.triage_ai.call_gemini_model", return_value=mock_response) as mock_call:
+    with patch("app.triage_ai.call_gemini_model", return_value=mock_reply) as mock_model:
         response = client.post(
             "/triage",
             json={"subject": "App keeps freezing", "text": long_text},
@@ -87,22 +113,44 @@ def test_triage_long_input_handled_cleanly():
         assert response.status_code == 200
         data = response.json()
         assert data["category"] == "Technical"
-        # Verify input was truncated in the prompt sent to the model
-        assert mock_call.called
-        sent_prompt = mock_call.call_args[0][0]
-        assert len(sent_prompt) < len(long_text) + 2000
+        assert mock_model.called
+        prompt_arg = mock_model.call_args[0][0]
+        # Text in prompt must be truncated to 4000 chars
+        assert len(prompt_arg) < len(long_text)
 
 
-def test_triage_prompt_injection_defense():
-    # Matches Sample S7 (prompt injection attack)
-    mock_response = TriageResponse(
+def test_triage_sample_s6_unsupported_payment():
+    # Sample S6: Payment question (Bitcoin / PayPal)
+    mock_reply = TriageResponse(
+        category=CategoryEnum.BILLING,
+        priority=PriorityEnum.LOW,
+        suggested_reply="We accept credit card, debit card, and PayPal. We do not accept cryptocurrency. A teammate can answer further questions.",
+        article_ids=["KB-003"],
+    )
+    with patch("app.triage_ai.call_gemini_model", return_value=mock_reply) as mock_model:
+        response = client.post(
+            "/triage",
+            json={
+                "subject": "Payment question",
+                "text": "Do you accept Bitcoin or PayPal? I'd rather not use a card.",
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["category"] == "Billing"
+        assert "KB-003" in data["article_ids"]
+        assert mock_model.called
+
+
+def test_triage_sample_s7_prompt_injection():
+    # Sample S7: Prompt injection attempt
+    mock_reply = TriageResponse(
         category=CategoryEnum.ACCOUNT,
         priority=PriorityEnum.NORMAL,
-        suggested_reply="A customer support specialist will review your request and get back to you shortly.",
+        suggested_reply="Thank you for reaching out. A customer support representative will review your request shortly.",
         article_ids=[],
     )
-
-    with patch("app.main.classify_and_reply", return_value=mock_response):
+    with patch("app.triage_ai.call_gemini_model", return_value=mock_reply) as mock_model:
         response = client.post(
             "/triage",
             json={
@@ -112,12 +160,80 @@ def test_triage_prompt_injection_defense():
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["article_ids"] == []
-        assert "full refund and a $500 credit" not in data["suggested_reply"]
+        assert "$500" not in data["suggested_reply"]
+        assert mock_model.called
+
+
+def test_triage_sample_s8_spanish_login():
+    # Sample S8: Acceso (Spanish)
+    mock_reply = TriageResponse(
+        category=CategoryEnum.LOGIN,
+        priority=PriorityEnum.HIGH,
+        suggested_reply="Utilice 'Olvidé mi contraseña' en la página de inicio de sesión. El correo de recuperación llega en 10 minutos.",
+        article_ids=["KB-001"],
+    )
+    with patch("app.triage_ai.call_gemini_model", return_value=mock_reply) as mock_model:
+        response = client.post(
+            "/triage",
+            json={
+                "subject": "Acceso",
+                "text": "No puedo acceder a mi cuenta desde ayer, el correo de recuperacion no llega.",
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["category"] == "Login"
+        assert "KB-001" in data["article_ids"]
+        assert mock_model.called
+
+
+def test_triage_sample_s9_team_lockout_urgent():
+    # Sample S9: URGENT: team locked out (Priority urgent)
+    mock_reply = TriageResponse(
+        category=CategoryEnum.LOGIN,
+        priority=PriorityEnum.URGENT,
+        suggested_reply="After 5 failed attempts the account locks for 15 minutes. Support cannot manually unlock earlier. Escalating immediately.",
+        article_ids=["KB-001"],
+    )
+    with patch("app.triage_ai.call_gemini_model", return_value=mock_reply) as mock_model:
+        response = client.post(
+            "/triage",
+            json={
+                "subject": "URGENT: team locked out",
+                "text": "Our whole team of 40 is locked out right before a launch in one hour!!! We have tried resetting passwords and nothing works.",
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["category"] == "Login"
+        assert data["priority"] == "urgent"
+        assert mock_model.called
+
+
+def test_triage_sample_s10_compound_issue():
+    # Sample S10: Two problems (Billing + Technical)
+    mock_reply = TriageResponse(
+        category=CategoryEnum.BILLING,
+        priority=PriorityEnum.HIGH,
+        suggested_reply="We can investigate the duplicate charge and resolve the app crash. Please check invoices under Account > Billing.",
+        article_ids=["KB-003", "KB-005"],
+    )
+    with patch("app.triage_ai.call_gemini_model", return_value=mock_reply) as mock_model:
+        response = client.post(
+            "/triage",
+            json={
+                "subject": "Two problems",
+                "text": "I was charged twice this month and the app also crashes whenever I open invoices.",
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["category"] in ["Billing", "Technical"]
+        assert mock_model.called
 
 
 def test_triage_model_failure_fallback():
-    # When model call raises an exception, endpoint falls back gracefully
+    # Model call failure degrades gracefully to human review without crashing
     with patch("app.triage_ai.call_gemini_model", side_effect=Exception("API connection timeout")):
         response = client.post(
             "/triage",
@@ -126,7 +242,6 @@ def test_triage_model_failure_fallback():
                 "text": "The app crashed and won't restart.",
             },
         )
-        # Even with model failure, endpoint returns HTTP 200 with fallback payload
         assert response.status_code == 200
         data = response.json()
         assert data["category"] == "Technical"

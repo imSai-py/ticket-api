@@ -14,11 +14,13 @@ try {
 
 if (Test-Path "frontend/package.json") {
     Write-Host "`n========================================" -ForegroundColor Cyan
-    Write-Host "2. Testing Frontend (Vitest)..." -ForegroundColor Cyan
+    Write-Host "2. Testing Frontend (Vitest & tsc)..." -ForegroundColor Cyan
     Write-Host "========================================" -ForegroundColor Cyan
     Push-Location "frontend"
     try {
         npm test -- --run
+        if ($LASTEXITCODE -ne 0) { $failed = $true }
+        npm run build
         if ($LASTEXITCODE -ne 0) { $failed = $true }
     } catch {
         $failed = $true

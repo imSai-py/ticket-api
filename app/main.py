@@ -1,11 +1,16 @@
 import csv
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+
+from app.retrieval import KBRetriever
+from app.schemas import TriageRequest, TriageResponse
+from app.summary_service import compute_metrics_from_tickets
+from app.triage_ai import classify_and_reply
 
 DEFAULT_DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "tickets_sample.csv"
 DATA_PATH_ENV = os.environ.get("TICKETS_DATA_PATH")
@@ -18,9 +23,11 @@ def load_tickets(path):
     tickets = []
     with open(path, newline="") as f:
         for row in csv.DictReader(f):
-            row["created"] = datetime.strptime(row["created_at"], FMT)
+            row["created"] = datetime.strptime(row["created_at"], FMT).replace(tzinfo=timezone.utc)
             row["resolved"] = (
-                datetime.strptime(row["resolved_at"], FMT) if row["resolved_at"] else None
+                datetime.strptime(row["resolved_at"], FMT).replace(tzinfo=timezone.utc)
+                if row["resolved_at"]
+                else None
             )
             tickets.append(row)
     return tickets
@@ -38,26 +45,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+retriever = KBRetriever()
 
-def public(ticket):
+
+def to_public_ticket_dict(ticket):
     return {k: ticket[k] for k in ("ticket_id", "created_at", "resolved_at", "category", "priority", "status")}
 
 
 @app.get("/tickets")
 def list_tickets(page: int = Query(1, ge=1), size: int = Query(10, ge=1, le=100)):
     start = (page - 1) * size
-    return [public(t) for t in TICKETS[start : start + size]]
+    return [to_public_ticket_dict(t) for t in TICKETS[start : start + size]]
 
 
 @app.get("/tickets/{ticket_id}")
 def get_ticket(ticket_id: str):
     for t in TICKETS:
         if t["ticket_id"] == ticket_id:
-            return public(t)
+            return to_public_ticket_dict(t)
     raise HTTPException(status_code=404, detail="ticket not found")
-
-
-from app.summary_service import compute_metrics_from_tickets
 
 
 @app.get("/summary")
@@ -81,17 +87,15 @@ def summary():
     }
 
 
-from app.retrieval import KBRetriever
-from app.schemas import TriageRequest, TriageResponse
-from app.triage_ai import classify_and_reply
-
-retriever = KBRetriever()
-
-
 @app.post("/triage", response_model=TriageResponse)
 def triage(req: TriageRequest):
-    matched = retriever.retrieve(req.subject, req.text, top_k=2)
-    return classify_and_reply(req.subject, req.text, matched_articles=matched)
+    # Truncate text prior to retrieval and prompt construction per spec
+    clean_text = req.text.strip()
+    if len(clean_text) > 4000:
+        clean_text = clean_text[:4000]
+
+    matched = retriever.retrieve(req.subject, clean_text, top_k=2)
+    return classify_and_reply(req.subject, clean_text, matched_articles=matched)
 
 
 app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")

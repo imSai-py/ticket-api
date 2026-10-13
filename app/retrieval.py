@@ -151,12 +151,17 @@ class KBRetriever:
 
         return [article for article, _ in ranked[:top_k]]
 
-    def format_articles_for_prompt(self, articles: List[KBArticle]) -> str:
+    @staticmethod
+    def format_articles_for_prompt(articles: Optional[List[KBArticle]]) -> str:
         """Format retrieved articles into a clean context string for LLM prompts."""
         if not articles:
-            return "No matching help articles found."
+            return "No relevant knowledge base articles were found."
 
         parts = []
         for art in articles:
             parts.append(f"--- Article {art.article_id}: {art.title} ---\n{art.content.strip()}")
         return "\n\n".join(parts)
+
+
+def format_articles_for_prompt(articles: Optional[List[KBArticle]]) -> str:
+    return KBRetriever.format_articles_for_prompt(articles)

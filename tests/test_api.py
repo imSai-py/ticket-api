@@ -35,11 +35,9 @@ def test_second_page_continues_tickets():
 
 
 def test_default_data_path_loads():
-    from app.main import DEFAULT_DATA_PATH, load_tickets
-
-    loaded = load_tickets(DEFAULT_DATA_PATH)
-    assert len(loaded) > 0
-    assert loaded[0]["ticket_id"] == "TCK-1001"
+    response = client.get("/tickets?page=1&size=1")
+    assert response.status_code == 200
+    assert response.json()[0]["ticket_id"] == "TCK-1001"
 
 
 def test_unknown_ticket_is_404():

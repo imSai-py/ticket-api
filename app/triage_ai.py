@@ -5,7 +5,7 @@ import logging
 import os
 from typing import List, Optional
 
-from app.retrieval import KBArticle
+from app.retrieval import KBArticle, format_articles_for_prompt
 from app.schemas import CategoryEnum, PriorityEnum, TriageResponse
 
 logger = logging.getLogger(__name__)
@@ -87,14 +87,8 @@ def classify_and_reply(
     if len(clean_text) > 4000:
         clean_text = clean_text[:4000]
 
-    # Format retrieved knowledge base articles
-    if matched_articles:
-        articles_text = "\n\n".join(
-            f"--- Article {art.article_id}: {art.title} ---\n{art.content.strip()}"
-            for art in matched_articles
-        )
-    else:
-        articles_text = "No relevant knowledge base articles were found."
+    # Format retrieved knowledge base articles using shared retriever helper
+    articles_text = format_articles_for_prompt(matched_articles)
 
     prompt = f"""KNOWLEDGE BASE ARTICLES:
 {articles_text}

@@ -93,7 +93,7 @@ Or run individual test suites:
 
 1. Push your repository to GitHub.
 2. In the Render Dashboard, create a **New Web Service** connected to your `ticket-api` GitHub repository.
-3. Choose **Docker** as the runtime (Render will automatically detect [Dockerfile](file:///C:/Users/saila/Documents/BITCOT_TASK/day-two-task/ticket-api/Dockerfile) and [render.yaml](file:///C:/Users/saila/Documents/BITCOT_TASK/day-two-task/ticket-api/render.yaml)).
+3. Choose **Docker** as the runtime (Render will automatically detect [Dockerfile](https://github.com/imSai-py/ticket-api/blob/master/Dockerfile) and [render.yaml](https://github.com/imSai-py/ticket-api/blob/master/render.yaml)).
 4. Under **Environment Variables**, add:
    - `GEMINI_API_KEY`: Your Google Gemini API key.
    - `TICKETS_DATA_PATH`: `data/tickets_sample.csv`
