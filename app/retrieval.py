@@ -150,8 +150,9 @@ class KBRetriever:
         top_k: int = 2,
         min_score: float = 0.5,
     ) -> List[KBArticle]:
-        """Score articles against ticket subject and body and return top matches."""
-        query_text = f"{subject} {text}"
+        clean_subject = (subject or "").strip()[:400]
+        clean_text = (text or "").strip()[:4000]
+        query_text = f"{clean_subject} {clean_text}"
         query_tokens = tokenize(query_text)
         if not query_tokens or not self.articles:
             return []

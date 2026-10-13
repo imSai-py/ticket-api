@@ -42,3 +42,11 @@ def test_default_data_path_loads():
 
 def test_unknown_ticket_is_404():
     assert client.get("/tickets/TCK-0000").status_code == 404
+
+
+def test_legacy_frontend_month_formatting():
+    # Verifies web/index.html formats months 1-indexed (d.getMonth() + 1)
+    response = client.get("/")
+    assert response.status_code == 200
+    html = response.text
+    assert "d.getMonth() + 1" in html

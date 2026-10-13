@@ -40,7 +40,7 @@ A robust, self-contained Python FastAPI service that:
 - **Architectural Seams and Boundaries**: The application will maintain a single HTTP boundary for all backend capability testing via FastAPI test client. Model interactions will sit behind an abstract boundary interface to allow direct substitution.
 - **Data Persistence and Initialization**: The dataset path will default to `data/tickets_sample.csv` when environment variables are not supplied. Data loading will convert dates into native datetime objects with ISO-8601 UTC compliance.
 - **Summary Metrics Computation**: The summary engine will incorporate Day 1 logic. Resolution durations will be computed solely for tickets with valid resolved timestamps and statuses matching `resolved` or `closed`.
-- **Knowledge Retrieval Engine**: A pure-Python keyword and token-overlap matching algorithm will evaluate incoming ticket subjects and bodies against the 6 local markdown knowledge base articles. Only the highest-ranking relevant articles will be supplied to the prompt.
+- **Knowledge Retrieval Engine**: A pure-Python keyword and token-overlap matching algorithm will evaluate incoming ticket subjects and bodies against the 6 local markdown knowledge base articles. Only the highest-ranking relevant articles will be supplied to the prompt. Includes cross-lingual keyword normalization to support multilingual customer queries (such as Spanish ticket S8 in the test samples).
 - **Triage Output Contract**:
   - `category`: String restricted to `Billing`, `Login`, `Shipping`, `Refunds`, `Technical`, `Account`.
   - `priority`: String restricted to `urgent`, `high`, `normal`, `low`.

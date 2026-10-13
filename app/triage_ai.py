@@ -54,8 +54,9 @@ def call_gemini_model(prompt: str, system_instruction: str = SYSTEM_INSTRUCTION)
         from google.genai import types
 
         client = genai.Client(api_key=api_key)
+        model_name = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model=model_name,
             contents=prompt,
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,

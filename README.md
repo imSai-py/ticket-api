@@ -70,7 +70,7 @@ What could go wrong: retrieval might pull irrelevant articles for ambiguous tick
 
 ## 4. Testing & Verification
 
-Run the unified test suite across both Python (19 tests) and TypeScript (4 Vitest tests):
+Run the unified test suite across both Python (26 tests) and TypeScript (4 Vitest tests):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/verify-all.ps1
@@ -92,8 +92,8 @@ Or run individual test suites:
 ## 5. Deployment (Render.com)
 
 1. Push your repository to GitHub.
-2. In the Render Dashboard, create a **New Web Service** connected to your `ticket-api` GitHub repository.
-3. Choose **Docker** as the runtime (Render will automatically detect [Dockerfile](https://github.com/imSai-py/ticket-api/blob/master/Dockerfile) and [render.yaml](https://github.com/imSai-py/ticket-api/blob/master/render.yaml)).
+2. In the Render Dashboard, create a **New Web Service** connected to your repository.
+3. Choose **Docker** as the runtime (Render will automatically detect [Dockerfile](https://github.com/imSai-py/bitcot-technical-assignment/blob/master/Dockerfile) and [render.yaml](https://github.com/imSai-py/bitcot-technical-assignment/blob/master/render.yaml)).
 4. Under **Environment Variables**, add:
    - `GEMINI_API_KEY`: Your Google Gemini API key.
    - `TICKETS_DATA_PATH`: `data/tickets_sample.csv`

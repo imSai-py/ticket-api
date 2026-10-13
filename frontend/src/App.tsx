@@ -7,6 +7,16 @@ export interface TriageResult {
   article_ids: string[];
 }
 
+interface ValidationErrorDetail {
+  msg?: string;
+  type?: string;
+  loc?: (string | number)[];
+}
+
+interface CustomImportMetaEnv {
+  VITE_API_BASE_URL?: string;
+}
+
 export function App() {
   const [subject, setSubject] = useState("");
   const [text, setText] = useState("");
@@ -14,7 +24,8 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<TriageResult | null>(null);
 
-  const apiBaseUrl = (import.meta as any).env?.VITE_API_BASE_URL || "http://localhost:8000";
+  const env = (import.meta as unknown as { env?: CustomImportMetaEnv }).env;
+  const apiBaseUrl = env?.VITE_API_BASE_URL || "http://localhost:8000";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,18 +46,28 @@ export function App() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
+        const errorData = (await response.json().catch(() => ({}))) as {
+          detail?: string | ValidationErrorDetail[];
+        };
         const detail = errorData.detail;
         const message = Array.isArray(detail)
-          ? detail.map((d: any) => d.msg).join(", ")
-          : detail || `HTTP error ${response.status}`;
+          ? detail
+              .map((d: ValidationErrorDetail) => d.msg || "Invalid input")
+              .join(", ")
+          : typeof detail === "string"
+          ? detail
+          : `HTTP error ${response.status}`;
         throw new Error(message);
       }
 
       const data: TriageResult = await response.json();
       setResult(data);
-    } catch (err: any) {
-      setError(err.message || "Failed to triage ticket. Please check connection.");
+    } catch (err: unknown) {
+      const errorMessage =
+        err instanceof Error
+          ? err.message
+          : "Failed to triage ticket. Please check connection.";
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

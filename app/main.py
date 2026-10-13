@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from app.retrieval import KBRetriever
 from app.schemas import TriageRequest, TriageResponse
 from app.summary_service import compute_metrics_from_tickets
-from app.triage_ai import classify_and_reply, sanitize_input_text
+from app.triage_ai import classify_and_reply
 
 DEFAULT_DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "tickets_sample.csv"
 DATA_PATH_ENV = os.environ.get("TICKETS_DATA_PATH")
@@ -35,11 +35,22 @@ def load_tickets(path):
 
 TICKETS = load_tickets(DATA_PATH)
 
+LOCAL_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
+CORS_ORIGINS_ENV = os.environ.get("CORS_ORIGINS")
+ALLOWED_ORIGINS = [orig.strip() for orig in CORS_ORIGINS_ENV.split(",")] if CORS_ORIGINS_ENV else LOCAL_ORIGINS
+
 app = FastAPI(title="ticket-api")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -89,10 +100,8 @@ def summary():
 
 @app.post("/triage", response_model=TriageResponse)
 def triage(req: TriageRequest):
-    # Sanitize and truncate text prior to retrieval and prompt construction per spec
-    clean_text = sanitize_input_text(req.text, max_chars=4000)
-    matched = retriever.retrieve(req.subject, clean_text, top_k=2)
-    return classify_and_reply(req.subject, clean_text, matched_articles=matched)
+    matched = retriever.retrieve(req.subject, req.text, top_k=2)
+    return classify_and_reply(req.subject, req.text, matched_articles=matched)
 
 
 app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
