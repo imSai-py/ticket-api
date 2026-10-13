@@ -27,28 +27,36 @@ def test_retrieve_password_reset_article():
 
 def test_retrieve_refund_article():
     retriever = KBRetriever()
-    results = retriever.retrieve("Refund please", "bought 20 days ago and want my money back")
+    results = retriever.retrieve(
+        "Refund please", "bought 20 days ago and want my money back"
+    )
     assert len(results) > 0
     assert results[0].article_id == "KB-002"
 
 
 def test_retrieve_shipping_article():
     retriever = KBRetriever()
-    results = retriever.retrieve("Where is my order?", "shipped 11 days ago and tracking not updated")
+    results = retriever.retrieve(
+        "Where is my order?", "shipped 11 days ago and tracking not updated"
+    )
     assert len(results) > 0
     assert results[0].article_id == "KB-004"
 
 
 def test_retrieve_app_troubleshooting_article():
     retriever = KBRetriever()
-    results = retriever.retrieve("App keeps freezing", "app keeps freezing on the report screen")
+    results = retriever.retrieve(
+        "App keeps freezing", "app keeps freezing on the report screen"
+    )
     assert len(results) > 0
     assert results[0].article_id == "KB-005"
 
 
 def test_retrieve_unrelated_query_returns_empty():
     retriever = KBRetriever()
-    results = retriever.retrieve("Weather today", "what is the atmospheric pressure in Antarctica")
+    results = retriever.retrieve(
+        "Weather today", "what is the atmospheric pressure in Antarctica"
+    )
     assert len(results) == 0
 
 

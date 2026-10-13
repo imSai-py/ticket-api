@@ -4,26 +4,155 @@ import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
-STOP_WORDS: Set[str] = {
-    "a", "about", "above", "after", "again", "against", "all", "am", "an", "and", "any", "are",
-    "aren't", "as", "at", "be", "because", "been", "before", "being", "below", "between", "both",
-    "but", "by", "can", "can't", "cannot", "could", "couldn't", "did", "didn't", "do", "does",
-    "doesn't", "doing", "don't", "down", "during", "each", "few", "for", "from", "further", "had",
-    "hadn't", "has", "hasn't", "have", "haven't", "having", "he", "her", "here", "hers", "herself",
-    "him", "himself", "his", "how", "i", "if", "in", "into", "is", "isn't", "it", "it's", "its",
-    "itself", "me", "more", "most", "mustn't", "my", "myself", "no", "nor", "not", "of", "off",
-    "on", "once", "only", "or", "other", "ought", "our", "ours", "ourselves", "out", "over", "own",
-    "same", "she", "should", "shouldn't", "so", "some", "such", "than", "that", "the", "their",
-    "theirs", "them", "themselves", "then", "there", "these", "they", "this", "those", "through",
-    "to", "too", "under", "until", "up", "very", "was", "wasn't", "we", "were", "weren't", "what",
-    "when", "where", "which", "while", "who", "whom", "why", "with", "won't", "would", "wouldn't",
-    "you", "your", "yours", "yourself", "yourselves",
+STOP_WORDS: set[str] = {
+    "a",
+    "about",
+    "above",
+    "after",
+    "again",
+    "against",
+    "all",
+    "am",
+    "an",
+    "and",
+    "any",
+    "are",
+    "aren't",
+    "as",
+    "at",
+    "be",
+    "because",
+    "been",
+    "before",
+    "being",
+    "below",
+    "between",
+    "both",
+    "but",
+    "by",
+    "can",
+    "can't",
+    "cannot",
+    "could",
+    "couldn't",
+    "did",
+    "didn't",
+    "do",
+    "does",
+    "doesn't",
+    "doing",
+    "don't",
+    "down",
+    "during",
+    "each",
+    "few",
+    "for",
+    "from",
+    "further",
+    "had",
+    "hadn't",
+    "has",
+    "hasn't",
+    "have",
+    "haven't",
+    "having",
+    "he",
+    "her",
+    "here",
+    "hers",
+    "herself",
+    "him",
+    "himself",
+    "his",
+    "how",
+    "i",
+    "if",
+    "in",
+    "into",
+    "is",
+    "isn't",
+    "it",
+    "it's",
+    "its",
+    "itself",
+    "me",
+    "more",
+    "most",
+    "mustn't",
+    "my",
+    "myself",
+    "no",
+    "nor",
+    "not",
+    "of",
+    "off",
+    "on",
+    "once",
+    "only",
+    "or",
+    "other",
+    "ought",
+    "our",
+    "ours",
+    "ourselves",
+    "out",
+    "over",
+    "own",
+    "same",
+    "she",
+    "should",
+    "shouldn't",
+    "so",
+    "some",
+    "such",
+    "than",
+    "that",
+    "the",
+    "their",
+    "theirs",
+    "them",
+    "themselves",
+    "then",
+    "there",
+    "these",
+    "they",
+    "this",
+    "those",
+    "through",
+    "to",
+    "too",
+    "under",
+    "until",
+    "up",
+    "very",
+    "was",
+    "wasn't",
+    "we",
+    "were",
+    "weren't",
+    "what",
+    "when",
+    "where",
+    "which",
+    "while",
+    "who",
+    "whom",
+    "why",
+    "with",
+    "won't",
+    "would",
+    "wouldn't",
+    "you",
+    "your",
+    "yours",
+    "yourself",
+    "yourselves",
 }
 
 
-CROSS_LINGUAL_SYNONYMS: Dict[str, List[str]] = {
+CROSS_LINGUAL_SYNONYMS: dict[str, list[str]] = {
     # Spanish to English cross-lingual mapping for customer support keywords
     "acceso": ["access", "login"],
     "acceder": ["access", "login"],
@@ -67,16 +196,16 @@ class KBArticle:
     path: Path
 
 
-def tokenize(text: str) -> List[str]:
+def tokenize(text: str) -> list[str]:
     """Tokenize text into lowercase words excluding stop words, supporting Unicode characters."""
     tokens = re.findall(r"\b[\w\-]+\b", text.lower(), re.UNICODE)
     return [t for t in tokens if len(t) > 1 and t not in STOP_WORDS]
 
 
 def extract_and_sanitize_input(
-    subject_or_request: Any, text: Optional[str] = None, max_total_chars: int = 4000
-) -> Tuple[str, str]:
-    """Extract and sanitize ticket subject and body guaranteeing total combined length budget."""
+    subject_or_request: Any, text: str | None = None, max_total_chars: int = 4000
+) -> tuple[str, str]:
+    """Extract and sanitize ticket subject and body guaranteeing total combined length budget without starving either field."""
     if hasattr(subject_or_request, "subject") and hasattr(subject_or_request, "text"):
         raw_subject = str(getattr(subject_or_request, "subject", "") or "")
         raw_text = str(getattr(subject_or_request, "text", "") or "")
@@ -84,9 +213,21 @@ def extract_and_sanitize_input(
         raw_subject = str(subject_or_request or "")
         raw_text = str(text or "")
 
-    clean_subject = raw_subject.strip()[:max_total_chars]
-    remaining_budget = max(0, max_total_chars - len(clean_subject))
-    clean_text = raw_text.strip()[:remaining_budget]
+    clean_raw_subj = raw_subject.strip()
+    clean_raw_text = raw_text.strip()
+    total_len = len(clean_raw_subj) + len(clean_raw_text)
+    if total_len <= max_total_chars:
+        return clean_raw_subj, clean_raw_text
+
+    if clean_raw_text:
+        text_reserve = min(len(clean_raw_text), max_total_chars // 2)
+        subj_allowance = max_total_chars - text_reserve
+        clean_subject = clean_raw_subj[:subj_allowance]
+        remaining_budget = max(0, max_total_chars - len(clean_subject))
+        clean_text = clean_raw_text[:remaining_budget]
+    else:
+        clean_subject = clean_raw_subj[:max_total_chars]
+        clean_text = ""
     return clean_subject, clean_text
 
 
@@ -97,7 +238,7 @@ BM25_B: float = 0.75
 class KBRetriever:
     """Pure-Python BM25 knowledge base retriever."""
 
-    def __init__(self, kb_dir: Optional[Path] = None):
+    def __init__(self, kb_dir: Path | None = None):
         if kb_dir is None:
             self.kb_dir = Path(__file__).resolve().parent.parent / "kb"
         else:
@@ -105,11 +246,11 @@ class KBRetriever:
 
         self.k1 = BM25_K1
         self.b = BM25_B
-        self.articles: List[KBArticle] = []
-        self.doc_tokens: List[List[str]] = []
-        self.doc_lengths: List[int] = []
+        self.articles: list[KBArticle] = []
+        self.doc_tokens: list[list[str]] = []
+        self.doc_lengths: list[int] = []
         self.avg_doc_len: float = 0.0
-        self.idf: Dict[str, float] = {}
+        self.idf: dict[str, float] = {}
 
         self._load_and_index()
 
@@ -146,7 +287,7 @@ class KBRetriever:
         # Boost title tokens by appending them twice
         self.doc_tokens = []
         total_len = 0
-        df: Dict[str, int] = {}
+        df: dict[str, int] = {}
 
         for art in self.articles:
             tokens = tokenize(art.content) + tokenize(art.title) * 2
@@ -162,15 +303,17 @@ class KBRetriever:
         self.avg_doc_len = total_len / num_docs
 
         for term, doc_count in df.items():
-            self.idf[term] = math.log(((num_docs - doc_count + 0.5) / (doc_count + 0.5)) + 1.0)
+            self.idf[term] = math.log(
+                ((num_docs - doc_count + 0.5) / (doc_count + 0.5)) + 1.0
+            )
 
     def retrieve(
         self,
         subject_or_request: Any,
-        text: Optional[str] = None,
+        text: str | None = None,
         top_k: int = 3,
         min_score: float = 0.5,
-    ) -> List[KBArticle]:
+    ) -> list[KBArticle]:
         """Score articles against ticket subject and body and return top matches."""
         clean_subject, clean_text = extract_and_sanitize_input(subject_or_request, text)
         query_text = f"{clean_subject} {clean_text}"
@@ -183,11 +326,11 @@ class KBRetriever:
             if token in CROSS_LINGUAL_SYNONYMS:
                 expanded_query_tokens.extend(CROSS_LINGUAL_SYNONYMS[token])
 
-        scores: List[float] = []
+        scores: list[float] = []
         for idx, doc_tokens in enumerate(self.doc_tokens):
             score = 0.0
             doc_len = self.doc_lengths[idx]
-            token_counts: Dict[str, int] = {}
+            token_counts: dict[str, int] = {}
             for t in doc_tokens:
                 token_counts[t] = token_counts.get(t, 0) + 1
 
@@ -199,13 +342,19 @@ class KBRetriever:
                     continue
                 idf = self.idf[q_term]
                 numerator = tf * (self.k1 + 1)
-                denominator = tf + self.k1 * (1 - self.b + self.b * (doc_len / self.avg_doc_len))
+                denominator = tf + self.k1 * (
+                    1 - self.b + self.b * (doc_len / self.avg_doc_len)
+                )
                 score += idf * (numerator / denominator)
 
             scores.append(score)
 
         ranked = sorted(
-            [(self.articles[i], scores[i]) for i in range(len(self.articles)) if scores[i] >= min_score],
+            [
+                (self.articles[i], scores[i])
+                for i in range(len(self.articles))
+                if scores[i] >= min_score
+            ],
             key=lambda x: x[1],
             reverse=True,
         )
@@ -213,12 +362,14 @@ class KBRetriever:
         return [article for article, _ in ranked[:top_k]]
 
     @staticmethod
-    def format_articles_for_prompt(articles: Optional[List[KBArticle]]) -> str:
+    def format_articles_for_prompt(articles: list[KBArticle] | None) -> str:
         """Format retrieved articles into a clean context string for LLM prompts."""
         if not articles:
             return "No relevant knowledge base articles were found."
 
         parts = []
         for art in articles:
-            parts.append(f"--- Article {art.article_id}: {art.title} ---\n{art.content.strip()}")
+            parts.append(
+                f"--- Article {art.article_id}: {art.title} ---\n{art.content.strip()}"
+            )
         return "\n\n".join(parts)
