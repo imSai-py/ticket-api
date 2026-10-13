@@ -251,3 +251,25 @@ def test_triage_model_failure_fallback():
         assert data["priority"] == "normal"
         assert "specialist will review" in data["suggested_reply"]
         assert data["article_ids"] == []
+
+
+def test_triage_hallucinated_article_ids_filtered_out():
+    # Model hallucinating an unretrieved article ID is filtered to prevent ungrounded citations
+    mock_reply = TriageResponse(
+        category=CategoryEnum.LOGIN,
+        priority=PriorityEnum.HIGH,
+        suggested_reply="Please reset your password on the login screen.",
+        article_ids=["KB-001", "KB-999"],
+    )
+    with patch("app.triage_ai.call_gemini_model", return_value=mock_reply):
+        response = client.post(
+            "/triage",
+            json={
+                "subject": "Cannot log in",
+                "text": "The reset email never arrives and I am locked out.",
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "KB-001" in data["article_ids"]
+        assert "KB-999" not in data["article_ids"]

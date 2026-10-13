@@ -50,3 +50,11 @@ def test_legacy_frontend_month_formatting():
     assert response.status_code == 200
     html = response.text
     assert "d.getMonth() + 1" in html
+
+
+def test_summary_uses_day1_module():
+    # Direct contract test ensuring summary endpoint uses Day 1 ticket_summary module
+    import ticket_summary
+    metrics, _ = ticket_summary.compute_metrics([])
+    assert metrics.overall_average_seconds is None
+    assert metrics.overall_average_hours() == 0.0

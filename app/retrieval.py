@@ -4,7 +4,7 @@ import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 STOP_WORDS: Set[str] = {
     "a", "about", "above", "after", "again", "against", "all", "am", "an", "and", "any", "are",
@@ -73,17 +73,29 @@ def tokenize(text: str) -> List[str]:
     return [t for t in tokens if len(t) > 1 and t not in STOP_WORDS]
 
 
+def sanitize_input_text(text: str, max_chars: int = 4000) -> str:
+    """Sanitize and limit input string to maximum character length."""
+    cleaned = (text or "").strip()
+    if len(cleaned) > max_chars:
+        return cleaned[:max_chars]
+    return cleaned
+
+
+BM25_K1: float = 1.5
+BM25_B: float = 0.75
+
+
 class KBRetriever:
     """Pure-Python BM25 knowledge base retriever."""
 
-    def __init__(self, kb_dir: Optional[Path] = None, k1: float = 1.5, b: float = 0.75):
+    def __init__(self, kb_dir: Optional[Path] = None):
         if kb_dir is None:
             self.kb_dir = Path(__file__).resolve().parent.parent / "kb"
         else:
             self.kb_dir = Path(kb_dir).resolve()
 
-        self.k1 = k1
-        self.b = b
+        self.k1 = BM25_K1
+        self.b = BM25_B
         self.articles: List[KBArticle] = []
         self.doc_tokens: List[List[str]] = []
         self.doc_lengths: List[int] = []
@@ -145,13 +157,21 @@ class KBRetriever:
 
     def retrieve(
         self,
-        subject: str,
-        text: str,
-        top_k: int = 2,
+        subject_or_request: Any,
+        text: Optional[str] = None,
+        top_k: int = 3,
         min_score: float = 0.5,
     ) -> List[KBArticle]:
-        clean_subject = (subject or "").strip()[:400]
-        clean_text = (text or "").strip()[:4000]
+        """Score articles against ticket subject and body and return top matches."""
+        if hasattr(subject_or_request, "subject") and hasattr(subject_or_request, "text"):
+            subject_val = subject_or_request.subject
+            text_val = subject_or_request.text
+        else:
+            subject_val = str(subject_or_request or "")
+            text_val = str(text or "")
+
+        clean_subject = sanitize_input_text(subject_val, max_chars=400)
+        clean_text = sanitize_input_text(text_val, max_chars=4000)
         query_text = f"{clean_subject} {clean_text}"
         query_tokens = tokenize(query_text)
         if not query_tokens or not self.articles:

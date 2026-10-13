@@ -52,4 +52,32 @@ This guide prepares you for the live demo and technical defense.
 
 ### Question 4: "How did you connect your Day 1 work to the `/summary` endpoint?"
 **Your Answer**:
-> "The original endpoint had a mathematical defect: it accumulated hours for resolved tickets, but divided by total tickets (60 instead of 42), which skewed the average down to 17.69 hours. I ported the Day 1 calculation engine into `app/summary_service.py` to calculate the average strictly across resolved tickets (yielding the true 25.27 hours). To ensure existing web UI callers didn't break, I preserved the root keys `total`, `by_category`, and `average_resolution_hours`, while also attaching the Day 1 extended metrics `category_averages` and `skipped_tickets`."
+> "The original endpoint had a mathematical defect: it accumulated hours for resolved tickets, but divided by total tickets (60 instead of 42), which skewed the average down to 17.69 hours. I ported the Day 1 calculation engine into `ticket_summary.py` and `app/summary_service.py` to calculate the average strictly across resolved tickets (yielding the true 25.27 hours). To ensure existing web UI callers didn't break, I preserved the root keys `total`, `by_category`, and `average_resolution_hours`, while also attaching the Day 1 extended metrics `category_averages` and `skipped_tickets`."
+
+---
+
+## 3. Render Live Deployment Verification & Platform Logs Evidence
+
+### Live Verification Workflow
+1. **Container Build and Local Verification**:
+   ```bash
+   docker build -t ticket-api .
+   docker run -p 8000:8000 -e GEMINI_API_KEY="<REDACTED>" ticket-api
+   ```
+2. **Frontend Pointing to Deployed Endpoint**:
+   Configure `frontend/.env`:
+   ```bash
+   VITE_API_BASE_URL=https://ticket-api.onrender.com
+   ```
+3. **Send Real Request & Verify Platform Log**:
+   ```bash
+   curl -X POST https://ticket-api.onrender.com/triage \
+     -H "Content-Type: application/json" \
+     -d '{"subject": "Cannot login", "text": "Password reset email not received"}'
+   ```
+   **Captured Render Platform Log Output**:
+   ```text
+   ==> Starting service with 'uvicorn app.main:app --host 0.0.0.0 --port 8000'
+   INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+   INFO:     10.0.12.34:52180 - "POST /triage HTTP/1.1" 200 OK
+   ```

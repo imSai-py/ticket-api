@@ -39,13 +39,13 @@ A robust, self-contained Python FastAPI service that:
 
 - **Architectural Seams and Boundaries**: The application will maintain a single HTTP boundary for all backend capability testing via FastAPI test client. Model interactions will sit behind an abstract boundary interface to allow direct substitution.
 - **Data Persistence and Initialization**: The dataset path will default to `data/tickets_sample.csv` when environment variables are not supplied. Data loading will convert dates into native datetime objects with ISO-8601 UTC compliance.
-- **Summary Metrics Computation**: The summary engine will incorporate Day 1 logic. Resolution durations will be computed solely for tickets with valid resolved timestamps and statuses matching `resolved` or `closed`.
-- **Knowledge Retrieval Engine**: A pure-Python keyword and token-overlap matching algorithm will evaluate incoming ticket subjects and bodies against the 6 local markdown knowledge base articles. Only the highest-ranking relevant articles will be supplied to the prompt. Includes cross-lingual keyword normalization to support multilingual customer queries (such as Spanish ticket S8 in the test samples).
+- **Summary Metrics Computation**: Direct integration of Day 1 ticket summary module (`ticket_summary.py`), calculating resolution durations strictly across tickets with valid resolved timestamps and statuses matching 'resolved' or 'closed'.
+- **Knowledge Retrieval Engine**: A pure-Python keyword and token-overlap matching algorithm will evaluate incoming ticket subjects and bodies against the 6 local markdown knowledge base articles. Only the highest-ranking relevant articles (up to top 3) will be supplied to the prompt. Includes cross-lingual keyword normalization to support multilingual customer queries (such as Spanish ticket S8 in the test samples).
 - **Triage Output Contract**:
   - `category`: String restricted to `Billing`, `Login`, `Shipping`, `Refunds`, `Technical`, `Account`.
   - `priority`: String restricted to `urgent`, `high`, `normal`, `low`.
   - `suggested_reply`: Non-empty grounded text.
-  - `article_ids`: List of strings matching referenced articles (e.g., `["KB-001"]`).
+  - `article_ids`: List of strings matching referenced articles (e.g., `["KB-001"]`), strictly validated against retrieved articles to prevent ungrounded citations.
 - **Edge-Case Policies**:
   - Input with zero non-whitespace characters returns HTTP 422.
   - Input exceeding 4,000 characters is trimmed to 4,000 characters prior to retrieval and prompt construction.
@@ -53,7 +53,7 @@ A robust, self-contained Python FastAPI service that:
   - AI timeouts or connection failures catch exceptions and return a fallback categorization marked for human review.
 - **Frontend Stack**: Single-page application built with Vite, React, and TypeScript. Uses environment variable configuration for target API base URL.
 - **Deployment**: Standard multi-stage container configuration suitable for Render.com free-tier deployment.
-- **Workflow Automation & Verification Scripts**: Multi-platform verification runners (`scripts/verify-all.ps1`, `scripts/verify-all.sh`) enforce automated testing gates across environments.
+- **Workflow Automation & Governance**: Multi-platform verification runners (`scripts/verify-all.ps1`, `scripts/verify-all.sh`) and agent operational guidelines (`AGENTS.md`, `GEMINI.md`) enforce automated testing gates across environments.
 
 ## Testing Decisions
 

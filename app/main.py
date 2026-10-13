@@ -9,13 +9,12 @@ from fastapi.staticfiles import StaticFiles
 
 from app.retrieval import KBRetriever
 from app.schemas import TriageRequest, TriageResponse
-from app.summary_service import compute_metrics_from_tickets
+from app.summary_service import compute_metrics_from_tickets, parse_timestamp
 from app.triage_ai import classify_and_reply
 
 DEFAULT_DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "tickets_sample.csv"
 DATA_PATH_ENV = os.environ.get("TICKETS_DATA_PATH")
 DATA_PATH = Path(DATA_PATH_ENV).resolve() if DATA_PATH_ENV else DEFAULT_DATA_PATH
-FMT = "%Y-%m-%d %H:%M"
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 
@@ -23,12 +22,8 @@ def load_tickets(path):
     tickets = []
     with open(path, newline="") as f:
         for row in csv.DictReader(f):
-            row["created"] = datetime.strptime(row["created_at"], FMT).replace(tzinfo=timezone.utc)
-            row["resolved"] = (
-                datetime.strptime(row["resolved_at"], FMT).replace(tzinfo=timezone.utc)
-                if row["resolved_at"]
-                else None
-            )
+            row["created"] = parse_timestamp(row["created_at"])
+            row["resolved"] = parse_timestamp(row["resolved_at"])
             tickets.append(row)
     return tickets
 
@@ -80,28 +75,19 @@ def get_ticket(ticket_id: str):
 @app.get("/summary")
 def summary():
     metrics, _ = compute_metrics_from_tickets(TICKETS)
-    avg_hours = (
-        round(metrics.overall_average_seconds / 3600.0, 2)
-        if metrics.overall_average_seconds is not None
-        else 0.0
-    )
-    cat_avg_hours = {
-        cat: round(sec / 3600.0, 2) if sec is not None else None
-        for cat, sec in metrics.category_average_seconds.items()
-    }
     return {
         "total": len(TICKETS),
         "by_category": dict(metrics.category_counts),
-        "average_resolution_hours": avg_hours,
-        "category_averages": cat_avg_hours,
+        "average_resolution_hours": metrics.overall_average_hours(),
+        "category_averages": metrics.category_average_hours(),
         "skipped_tickets": metrics.skipped_tickets,
     }
 
 
 @app.post("/triage", response_model=TriageResponse)
 def triage(req: TriageRequest):
-    matched = retriever.retrieve(req.subject, req.text, top_k=2)
-    return classify_and_reply(req.subject, req.text, matched_articles=matched)
+    matched = retriever.retrieve(req)
+    return classify_and_reply(req, matched_articles=matched)
 
 
 app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")

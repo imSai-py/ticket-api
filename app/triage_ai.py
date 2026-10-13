@@ -3,9 +3,9 @@
 import json
 import logging
 import os
-from typing import List, Optional
+from typing import Any, List, Optional
 
-from app.retrieval import KBArticle, KBRetriever
+from app.retrieval import KBArticle, KBRetriever, sanitize_input_text
 from app.schemas import CategoryEnum, PriorityEnum, TriageResponse
 
 logger = logging.getLogger(__name__)
@@ -76,22 +76,21 @@ def call_gemini_model(prompt: str, system_instruction: str = SYSTEM_INSTRUCTION)
         return get_fallback_triage(f"Model error: {exc}")
 
 
-def sanitize_input_text(text: str, max_chars: int = 4000) -> str:
-    """Sanitize and limit input string to maximum character length."""
-    cleaned = text.strip()
-    if len(cleaned) > max_chars:
-        return cleaned[:max_chars]
-    return cleaned
-
-
 def classify_and_reply(
-    subject: str,
-    text: str,
+    subject_or_request: Any,
+    text: Optional[str] = None,
     matched_articles: Optional[List[KBArticle]] = None,
 ) -> TriageResponse:
     """Classify ticket and generate grounded reply behind a swappable interface."""
-    clean_subject = sanitize_input_text(subject, max_chars=400)
-    clean_text = sanitize_input_text(text, max_chars=4000)
+    if hasattr(subject_or_request, "subject") and hasattr(subject_or_request, "text"):
+        subject_val = subject_or_request.subject
+        text_val = subject_or_request.text
+    else:
+        subject_val = str(subject_or_request or "")
+        text_val = str(text or "")
+
+    clean_subject = sanitize_input_text(subject_val, max_chars=400)
+    clean_text = sanitize_input_text(text_val, max_chars=4000)
 
     # Format retrieved knowledge base articles using retriever class method
     articles_text = KBRetriever.format_articles_for_prompt(matched_articles)
@@ -104,7 +103,12 @@ Subject: {clean_subject}
 Body: {clean_text}
 """
     try:
-        return call_gemini_model(prompt)
+        res = call_gemini_model(prompt)
+        # Validate returned article IDs against retrieved articles (prevent hallucinations)
+        if matched_articles is not None:
+            allowed_ids = {a.article_id for a in matched_articles}
+            res.article_ids = [aid for aid in res.article_ids if aid in allowed_ids]
+        return res
     except Exception as exc:
         logger.error("Failed during model execution in classify_and_reply: %s", exc)
         return get_fallback_triage(f"Model invocation failed: {exc}")
