@@ -4,7 +4,7 @@ import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 STOP_WORDS: Set[str] = {
     "a", "about", "above", "after", "again", "against", "all", "am", "an", "and", "any", "are",
@@ -68,9 +68,18 @@ class KBArticle:
 
 
 def tokenize(text: str) -> List[str]:
-    """Tokenize text into lowercase alpha-numeric words excluding stop words."""
-    tokens = re.findall(r"\b[a-zA-Z0-9_\-]+\b", text.lower())
+    """Tokenize text into lowercase words excluding stop words, supporting Unicode characters."""
+    tokens = re.findall(r"\b[\w\-]+\b", text.lower(), re.UNICODE)
     return [t for t in tokens if len(t) > 1 and t not in STOP_WORDS]
+
+
+def extract_subject_and_text(
+    subject_or_request: Any, text: Optional[str] = None
+) -> Tuple[str, str]:
+    """Extract subject and text strings from a request object or positional parameters."""
+    if hasattr(subject_or_request, "subject") and hasattr(subject_or_request, "text"):
+        return str(subject_or_request.subject or ""), str(subject_or_request.text or "")
+    return str(subject_or_request or ""), str(text or "")
 
 
 def sanitize_input_text(text: str, max_chars: int = 4000) -> str:
@@ -163,13 +172,7 @@ class KBRetriever:
         min_score: float = 0.5,
     ) -> List[KBArticle]:
         """Score articles against ticket subject and body and return top matches."""
-        if hasattr(subject_or_request, "subject") and hasattr(subject_or_request, "text"):
-            subject_val = subject_or_request.subject
-            text_val = subject_or_request.text
-        else:
-            subject_val = str(subject_or_request or "")
-            text_val = str(text or "")
-
+        subject_val, text_val = extract_subject_and_text(subject_or_request, text)
         clean_subject = sanitize_input_text(subject_val, max_chars=400)
         clean_text = sanitize_input_text(text_val, max_chars=4000)
         query_text = f"{clean_subject} {clean_text}"

@@ -5,7 +5,12 @@ import logging
 import os
 from typing import Any, List, Optional
 
-from app.retrieval import KBArticle, KBRetriever, sanitize_input_text
+from app.retrieval import (
+    KBArticle,
+    KBRetriever,
+    extract_subject_and_text,
+    sanitize_input_text,
+)
 from app.schemas import CategoryEnum, PriorityEnum, TriageResponse
 
 logger = logging.getLogger(__name__)
@@ -82,13 +87,7 @@ def classify_and_reply(
     matched_articles: Optional[List[KBArticle]] = None,
 ) -> TriageResponse:
     """Classify ticket and generate grounded reply behind a swappable interface."""
-    if hasattr(subject_or_request, "subject") and hasattr(subject_or_request, "text"):
-        subject_val = subject_or_request.subject
-        text_val = subject_or_request.text
-    else:
-        subject_val = str(subject_or_request or "")
-        text_val = str(text or "")
-
+    subject_val, text_val = extract_subject_and_text(subject_or_request, text)
     clean_subject = sanitize_input_text(subject_val, max_chars=400)
     clean_text = sanitize_input_text(text_val, max_chars=4000)
 

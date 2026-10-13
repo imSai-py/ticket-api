@@ -70,7 +70,7 @@ What could go wrong: retrieval might pull irrelevant articles for ambiguous tick
 
 ## 4. Testing & Verification
 
-Run the unified test suite across both Python (28 tests) and TypeScript (4 Vitest tests):
+Run the unified test suite across both Python (29 tests) and TypeScript (4 Vitest tests):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/verify-all.ps1

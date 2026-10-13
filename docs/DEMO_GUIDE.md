@@ -17,7 +17,7 @@ This guide prepares you for the live demo and technical defense.
 ### Minute 2: AI Triage Architecture & Retrieval (1:00 - 2:00)
 - **Show Knowledge Base Ingestion**:
   - Point to `kb/` containing the 6 curated markdown articles.
-  - Explain `app/retrieval.py`: pure-Python BM25 scoring extracts the top 2 relevant articles without heavy vector database overhead.
+  - Explain `app/retrieval.py`: pure-Python BM25 scoring extracts the most relevant articles (up to top 3) without heavy vector database overhead.
 - **Show `/triage` Endpoint**:
   - Post a sample ticket (e.g., *Subject: "Cannot log in", Body: "Reset email never arrives"*).
   - Show the returned structured JSON:

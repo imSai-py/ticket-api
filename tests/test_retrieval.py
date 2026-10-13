@@ -60,3 +60,10 @@ def test_retrieve_multilingual_spanish_query_matches_password_reset():
     )
     assert len(results) > 0
     assert results[0].article_id == "KB-001"
+
+
+def test_tokenize_supports_unicode_characters():
+    from app.retrieval import tokenize
+    tokens = tokenize("Olvidé mi contraseña y cuenta")
+    assert "contraseña" in tokens
+    assert "cuenta" in tokens

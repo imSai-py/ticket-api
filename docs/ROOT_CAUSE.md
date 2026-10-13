@@ -1,8 +1,31 @@
 # Root Cause Analysis: Inherited `ticket-api` Defects
 
-This document details the issues discovered during the takeover of `ticket-api`, including the defect description, discovery methodology, applied resolution, and alignment decisions with Day 1 analytics.
+## 1. Initial Run Step-by-Step Execution Notes (Task 2.1)
+
+Following the legacy `README.md` instructions step-by-step produced the following chronological observations:
+
+1. **Step 1 — Dependency Installation**:
+   - Command: `pip install -r requirements.txt`
+   - Result: Packages installed cleanly.
+2. **Step 2 — Launch Development Server**:
+   - Command: `uvicorn main:app --reload`
+   - Result: Immediate process failure with `ModuleNotFoundError: No module named 'main'` because `main.py` is inside the `app/` package directory.
+3. **Step 3 — Launch with Module Path**:
+   - Command: `uvicorn app.main:app`
+   - Result: Immediate process crash with `KeyError: 'TICKETS_DATA_PATH'` because startup code accessed `os.environ["TICKETS_DATA_PATH"]` without a fallback default.
+4. **Step 4 — Provide Environment Variable and Open Web UI**:
+   - Command: `$env:TICKETS_DATA_PATH="data/tickets_sample.csv"; uvicorn app.main:app`
+   - Result: Server booted. Visiting `http://localhost:8000` revealed date display defect: March dates rendered as `2024-02-...` due to zero-indexed `d.getMonth()`.
+5. **Step 5 — Inspect Ticket Pagination**:
+   - Command: `curl http://localhost:8000/tickets?page=1&size=10`
+   - Result: The first returned ticket was `TCK-1002` instead of `TCK-1001` due to off-by-one formula `start = (page - 1) * size + 1`.
+6. **Step 6 — Inspect Summary Metrics**:
+   - Command: `curl http://localhost:8000/summary`
+   - Result: Endpoint returned `average_resolution_hours: 17.69`, contradicting Day 1 metric (25.27 hours) by dividing by all 60 tickets instead of 42 resolved tickets.
 
 ---
+
+## 2. Detailed Root Cause Analysis by Defect
 
 ## 1. Missing Fallback for `TICKETS_DATA_PATH`
 
