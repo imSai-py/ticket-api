@@ -28,6 +28,7 @@ COPY app/ ./app/
 COPY data/ ./data/
 COPY kb/ ./kb/
 COPY web/ ./web/
+COPY ticket_summary.py ./
 
 EXPOSE 8000
 
