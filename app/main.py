@@ -1,6 +1,5 @@
 import csv
 import os
-from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
@@ -9,10 +8,12 @@ from fastapi.staticfiles import StaticFiles
 
 from app.retrieval import KBRetriever
 from app.schemas import TriageRequest, TriageResponse
-from app.summary_service import compute_metrics_from_tickets, parse_timestamp
 from app.triage_ai import classify_and_reply
+from ticket_summary import compute_metrics, parse_iso_timestamp
 
-DEFAULT_DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "tickets_sample.csv"
+DEFAULT_DATA_PATH = (
+    Path(__file__).resolve().parent.parent / "data" / "tickets_sample.csv"
+)
 DATA_PATH_ENV = os.environ.get("TICKETS_DATA_PATH")
 DATA_PATH = Path(DATA_PATH_ENV).resolve() if DATA_PATH_ENV else DEFAULT_DATA_PATH
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -22,8 +23,8 @@ def load_tickets(path):
     tickets = []
     with open(path, newline="") as f:
         for row in csv.DictReader(f):
-            row["created"] = parse_timestamp(row["created_at"])
-            row["resolved"] = parse_timestamp(row["resolved_at"])
+            row["created"] = parse_iso_timestamp(row["created_at"])
+            row["resolved"] = parse_iso_timestamp(row["resolved_at"])
             tickets.append(row)
     return tickets
 
@@ -39,7 +40,11 @@ LOCAL_ORIGINS = [
     "http://127.0.0.1:8000",
 ]
 CORS_ORIGINS_ENV = os.environ.get("CORS_ORIGINS")
-ALLOWED_ORIGINS = [orig.strip() for orig in CORS_ORIGINS_ENV.split(",")] if CORS_ORIGINS_ENV else LOCAL_ORIGINS
+ALLOWED_ORIGINS = (
+    [orig.strip() for orig in CORS_ORIGINS_ENV.split(",")]
+    if CORS_ORIGINS_ENV
+    else LOCAL_ORIGINS
+)
 
 app = FastAPI(title="ticket-api")
 
@@ -55,7 +60,17 @@ retriever = KBRetriever()
 
 
 def to_public_ticket_dict(ticket):
-    return {k: ticket[k] for k in ("ticket_id", "created_at", "resolved_at", "category", "priority", "status")}
+    return {
+        k: ticket[k]
+        for k in (
+            "ticket_id",
+            "created_at",
+            "resolved_at",
+            "category",
+            "priority",
+            "status",
+        )
+    }
 
 
 @app.get("/tickets")
@@ -74,7 +89,7 @@ def get_ticket(ticket_id: str):
 
 @app.get("/summary")
 def summary():
-    metrics, _ = compute_metrics_from_tickets(TICKETS)
+    metrics, _ = compute_metrics(TICKETS)
     return {
         "total": len(TICKETS),
         "by_category": dict(metrics.category_counts),
@@ -86,8 +101,8 @@ def summary():
 
 @app.post("/triage", response_model=TriageResponse)
 def triage(req: TriageRequest):
-    matched = retriever.retrieve(req)
-    return classify_and_reply(req, matched_articles=matched)
+    matched = retriever.retrieve(req.subject, req.text)
+    return classify_and_reply(req.subject, req.text, matched_articles=matched)
 
 
 app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")

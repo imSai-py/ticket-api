@@ -1,20 +1,9 @@
 """Day 1 Ticket Summary calculation engine module."""
 
-import csv
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
-
-REQUIRED_COLUMNS = {
-    "ticket_id",
-    "created_at",
-    "resolved_at",
-    "category",
-    "priority",
-    "status",
-}
+from datetime import UTC, datetime
+from typing import Any
 
 RESOLVED_STATUSES = {"resolved", "closed"}
 
@@ -24,9 +13,9 @@ class TicketMetrics:
     """Computed ticket summary metrics."""
 
     category_counts: Counter
-    overall_average_seconds: Optional[float]
-    category_average_seconds: Dict[str, Optional[float]]
-    skipped_tickets: Dict[str, List[str]]
+    overall_average_seconds: float | None
+    category_average_seconds: dict[str, float | None]
+    skipped_tickets: dict[str, list[str]]
 
     def overall_average_hours(self) -> float:
         """Return overall average resolution duration in hours, rounded to 2 decimals."""
@@ -34,7 +23,7 @@ class TicketMetrics:
             return 0.0
         return round(self.overall_average_seconds / 3600.0, 2)
 
-    def category_average_hours(self) -> Dict[str, Optional[float]]:
+    def category_average_hours(self) -> dict[str, float | None]:
         """Return category resolution duration averages in hours, rounded to 2 decimals."""
         return {
             cat: round(sec / 3600.0, 2) if sec is not None else None
@@ -42,128 +31,27 @@ class TicketMetrics:
         }
 
 
-def parse_iso_timestamp(ts_str: str) -> Optional[datetime]:
-    """Parse standard ISO-8601 timestamp and normalize to UTC."""
-    if not ts_str or not ts_str.strip():
+def parse_iso_timestamp(ts_val: Any) -> datetime | None:
+    """Parse standard ISO-8601 timestamp string or datetime object and normalize to UTC."""
+    if isinstance(ts_val, datetime):
+        if ts_val.tzinfo is None:
+            return ts_val.replace(tzinfo=UTC)
+        return ts_val.astimezone(UTC)
+    if not ts_val or not str(ts_val).strip():
         return None
-    cleaned = ts_str.strip()
+    cleaned = str(ts_val).strip()
     try:
         dt = datetime.fromisoformat(cleaned)
         if dt.tzinfo is None:
-            return dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc)
+            return dt.replace(tzinfo=UTC)
+        return dt.astimezone(UTC)
     except (ValueError, TypeError):
         return None
 
 
-def format_duration(seconds: Optional[float]) -> str:
-    """Format duration in seconds into human-readable duration string."""
-    if seconds is None:
-        return "N/A (No resolved tickets)"
-
-    total_hours = seconds / 3600.0
-    total_sec = round(seconds)
-
-    days = total_sec // 86400
-    rem_sec = total_sec % 86400
-    hours = rem_sec // 3600
-    rem_sec = rem_sec % 3600
-    minutes = rem_sec // 60
-
-    days_label = f"{days} day" if days == 1 else f"{days} days"
-    hours_label = f"{hours} hour" if hours == 1 else f"{hours} hours"
-    minutes_label = f"{minutes} minute" if minutes == 1 else f"{minutes} minutes"
-
-    formatted_str = f"{days_label}, {hours_label}, {minutes_label}"
-    return f"{formatted_str} ({total_hours:.2f} hours)"
-
-
-def read_and_validate_csv(
-    file_path: Path,
-) -> Tuple[List[Dict[str, str]], List[str], List[str]]:
-    """Read CSV file, validate headers, trim whitespace, and validate rows.
-
-    Returns:
-        Tuple of (valid_rows, fatal_errors, row_warnings)
-    """
-    if not file_path.exists():
-        return [], [f"Error: File '{file_path}' does not exist."], []
-
-    if file_path.is_dir():
-        return (
-            [],
-            [f"Error: Path '{file_path}' is a directory, not a file."],
-            [],
-        )
-
-    try:
-        with open(file_path, mode="r", encoding="utf-8-sig") as f:
-            reader = csv.reader(f)
-            header_row = next(reader, None)
-
-            if header_row is None:
-                return [], [f"Error: File '{file_path}' is empty."], []
-
-            clean_headers = [col.strip() for col in header_row]
-            missing_cols = REQUIRED_COLUMNS - set(clean_headers)
-            if missing_cols:
-                missing_str = ", ".join(sorted(missing_cols))
-                return (
-                    [],
-                    [f"Error: Missing required column(s): {missing_str}."],
-                    [],
-                )
-
-            valid_rows: List[Dict[str, str]] = []
-            row_warnings: List[str] = []
-
-            for row_idx, row in enumerate(reader, start=2):
-                if not row or not any(cell.strip() for cell in row):
-                    continue
-
-                padded_row = row + [""] * (len(clean_headers) - len(row))
-                row_dict = {
-                    h: padded_row[idx].strip() for idx, h in enumerate(clean_headers)
-                }
-
-                ticket_id = row_dict.get("ticket_id", "").strip()
-                if not ticket_id:
-                    row_warnings.append(f"Warning: Row {row_idx}: Missing ticket_id.")
-                    continue
-
-                category = row_dict.get("category", "").strip()
-                if not category:
-                    row_warnings.append(f"Warning: {ticket_id}: Missing category.")
-                    continue
-
-                priority = row_dict.get("priority", "").strip()
-                if not priority:
-                    row_warnings.append(f"Warning: {ticket_id}: Missing priority.")
-                    continue
-
-                status = row_dict.get("status", "").strip()
-                if not status:
-                    row_warnings.append(f"Warning: {ticket_id}: Missing status.")
-                    continue
-
-                created_str = row_dict.get("created_at", "").strip()
-                created_dt = parse_iso_timestamp(created_str)
-                if not created_str or created_dt is None:
-                    row_warnings.append(
-                        f"Warning: {ticket_id}: Invalid or missing created_at."
-                    )
-                    continue
-
-                valid_rows.append(row_dict)
-
-            return valid_rows, [], row_warnings
-    except Exception as exc:
-        return [], [f"Error reading '{file_path}': {exc}"], []
-
-
 def compute_metrics(
-    rows: List[Dict[str, str]],
-) -> Tuple[TicketMetrics, List[str]]:
+    rows: list[dict[str, Any]],
+) -> tuple[TicketMetrics, list[str]]:
     """Compute category counts, resolution metrics, and track skipped tickets.
 
     Returns:
@@ -172,20 +60,23 @@ def compute_metrics(
     category_counts: Counter = Counter(
         row.get("category", "Uncategorized") for row in rows
     )
-    category_durations: Dict[str, List[float]] = defaultdict(list)
-    all_durations: List[float] = []
+    category_durations: dict[str, list[float]] = defaultdict(list)
+    all_durations: list[float] = []
 
-    skipped_tickets: Dict[str, List[str]] = defaultdict(list)
-    resolution_warnings: List[str] = []
+    skipped_tickets: dict[str, list[str]] = defaultdict(list)
+    resolution_warnings: list[str] = []
 
     for row in rows:
-        ticket_id = row.get("ticket_id", "")
-        category = row.get("category", "Uncategorized")
-        created_dt = parse_iso_timestamp(row.get("created_at", ""))
-        resolved_str = row.get("resolved_at", "").strip()
-        status = row.get("status", "").strip().lower()
+        ticket_id = str(row.get("ticket_id") or "")
+        category = str(row.get("category") or "Uncategorized")
+        created_val = row.get("created") if "created" in row else row.get("created_at")
+        created_dt = parse_iso_timestamp(created_val)
+        resolved_val = (
+            row.get("resolved") if "resolved" in row else row.get("resolved_at")
+        )
+        status = str(row.get("status") or "").strip().lower()
 
-        if not resolved_str:
+        if not resolved_val:
             skipped_tickets["Unresolved / Missing resolution date"].append(ticket_id)
             continue
 
@@ -193,7 +84,7 @@ def compute_metrics(
             skipped_tickets["Unresolved / Non-resolved status"].append(ticket_id)
             continue
 
-        resolved_dt = parse_iso_timestamp(resolved_str)
+        resolved_dt = parse_iso_timestamp(resolved_val)
         if resolved_dt is None:
             resolution_warnings.append(
                 f"Warning: {ticket_id}: Invalid resolved_at timestamp."
@@ -203,7 +94,7 @@ def compute_metrics(
 
         if created_dt and resolved_dt < created_dt:
             resolution_warnings.append(
-                f"Warning: {ticket_id}: Resolved date earlier than created" " date."
+                f"Warning: {ticket_id}: Resolved date earlier than created date."
             )
             skipped_tickets["Resolved before created"].append(ticket_id)
             continue
@@ -215,7 +106,7 @@ def compute_metrics(
 
     overall_avg_sec = sum(all_durations) / len(all_durations) if all_durations else None
 
-    category_averages: Dict[str, Optional[float]] = {}
+    category_averages: dict[str, float | None] = {}
     for category in sorted(category_counts.keys()):
         durations = category_durations.get(category, [])
         category_averages[category] = (

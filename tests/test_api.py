@@ -62,3 +62,21 @@ def test_summary_endpoint_contract_compliance():
     assert "category_averages" in data
     assert "skipped_tickets" in data
     assert data["average_resolution_hours"] == 25.27
+
+
+def test_service_starts_cleanly_when_env_vars_unset(monkeypatch):
+    # Verifies requirement 15: backend service starts cleanly with unset env variables using local defaults
+    import importlib
+
+    import app.main
+
+    monkeypatch.delenv("TICKETS_DATA_PATH", raising=False)
+    monkeypatch.delenv("CORS_ORIGINS", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
+    reloaded = importlib.reload(app.main)
+    assert reloaded.DATA_PATH == reloaded.DEFAULT_DATA_PATH
+    assert len(reloaded.TICKETS) == 60
+    assert reloaded.TICKETS[0]["ticket_id"] == "TCK-1001"
+    fresh_client = TestClient(reloaded.app)
+    assert fresh_client.get("/tickets?page=1&size=1").status_code == 200

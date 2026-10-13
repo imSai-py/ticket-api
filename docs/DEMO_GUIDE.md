@@ -52,7 +52,7 @@ This guide prepares you for the live demo and technical defense.
 
 ### Question 4: "How did you connect your Day 1 work to the `/summary` endpoint?"
 **Your Answer**:
-> "The original endpoint had a mathematical defect: it accumulated hours for resolved tickets, but divided by total tickets (60 instead of 42), which skewed the average down to 17.69 hours. I ported the Day 1 calculation engine into `ticket_summary.py` and `app/summary_service.py` to calculate the average strictly across resolved tickets (yielding the true 25.27 hours). To ensure existing web UI callers didn't break, I preserved the root keys `total`, `by_category`, and `average_resolution_hours`, while also attaching the Day 1 extended metrics `category_averages` and `skipped_tickets`."
+> "The original endpoint had a mathematical defect: it accumulated hours for resolved tickets, but divided by total tickets (60 instead of 42), which skewed the average down to 17.69 hours. I ported the Day 1 calculation engine into `ticket_summary.py` and connected it directly to `app/main.py` to calculate the average strictly across resolved tickets (yielding the true 25.27 hours). To ensure existing web UI callers didn't break, I preserved the root keys `total`, `by_category`, and `average_resolution_hours`, while also attaching the Day 1 extended metrics `category_averages` and `skipped_tickets`."
 
 ---
 
