@@ -185,6 +185,7 @@ def test_triage_sample_s8_spanish_login():
         assert data["category"] == "Login"
         assert "KB-001" in data["article_ids"]
         assert mock_model.called
+        assert "KB-001" in mock_model.call_args[0][0]
 
 
 def test_triage_sample_s9_team_lockout_urgent():

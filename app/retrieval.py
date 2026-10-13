@@ -23,6 +23,40 @@ STOP_WORDS: Set[str] = {
 }
 
 
+CROSS_LINGUAL_SYNONYMS: Dict[str, List[str]] = {
+    # Spanish to English cross-lingual mapping for customer support keywords
+    "acceso": ["access", "login"],
+    "acceder": ["access", "login"],
+    "cuenta": ["account"],
+    "contrasena": ["password"],
+    "contraseña": ["password"],
+    "clave": ["password"],
+    "correo": ["email"],
+    "recuperacion": ["recovery", "reset"],
+    "recuperar": ["recovery", "reset"],
+    "reembolso": ["refund"],
+    "devolucion": ["return", "refund"],
+    "devolver": ["return", "refund"],
+    "factura": ["invoice", "billing"],
+    "facturas": ["invoices", "billing"],
+    "cobro": ["charge", "billing"],
+    "tarjeta": ["card", "billing"],
+    "suscripcion": ["subscription"],
+    "envio": ["shipping", "delivery"],
+    "entrega": ["delivery", "shipping"],
+    "seguimiento": ["tracking"],
+    "rastreo": ["tracking"],
+    "pedido": ["order"],
+    "bloqueo": ["lockout", "locked"],
+    "bloqueada": ["lockout", "locked"],
+    "bloqueado": ["lockout", "locked"],
+    "falla": ["crash", "troubleshooting"],
+    "congelado": ["freeze", "troubleshooting"],
+    "eliminar": ["delete", "closing"],
+    "borrar": ["delete", "closing"],
+}
+
+
 @dataclass
 class KBArticle:
     """Represents a knowledge base article."""
@@ -122,6 +156,11 @@ class KBRetriever:
         if not query_tokens or not self.articles:
             return []
 
+        expanded_query_tokens = list(query_tokens)
+        for token in query_tokens:
+            if token in CROSS_LINGUAL_SYNONYMS:
+                expanded_query_tokens.extend(CROSS_LINGUAL_SYNONYMS[token])
+
         scores: List[float] = []
         for idx, doc_tokens in enumerate(self.doc_tokens):
             score = 0.0
@@ -130,7 +169,7 @@ class KBRetriever:
             for t in doc_tokens:
                 token_counts[t] = token_counts.get(t, 0) + 1
 
-            for q_term in query_tokens:
+            for q_term in expanded_query_tokens:
                 if q_term not in self.idf:
                     continue
                 tf = token_counts.get(q_term, 0)
@@ -161,7 +200,3 @@ class KBRetriever:
         for art in articles:
             parts.append(f"--- Article {art.article_id}: {art.title} ---\n{art.content.strip()}")
         return "\n\n".join(parts)
-
-
-def format_articles_for_prompt(articles: Optional[List[KBArticle]]) -> str:
-    return KBRetriever.format_articles_for_prompt(articles)

@@ -53,10 +53,11 @@ A robust, self-contained Python FastAPI service that:
   - AI timeouts or connection failures catch exceptions and return a fallback categorization marked for human review.
 - **Frontend Stack**: Single-page application built with Vite, React, and TypeScript. Uses environment variable configuration for target API base URL.
 - **Deployment**: Standard multi-stage container configuration suitable for Render.com free-tier deployment.
+- **Workflow Automation & Verification Scripts**: Multi-platform verification runners (`scripts/verify-all.ps1`, `scripts/verify-all.sh`) enforce automated testing gates across environments.
 
 ## Testing Decisions
 
-- **Black-Box External Verification**: Tests will exercise only HTTP entrypoints and public contract interfaces. Internal helper functions will not be tested in isolation.
+- **Black-Box External Verification**: Tests will exercise HTTP entrypoints and public contract interfaces (such as KBRetriever and API endpoints). Internal helper functions will not be tested in isolation.
 - **Determinism and Offline Execution**: Unit test suites must run without internet access. Model calls must be intercepted at the function boundary.
 - **Test Scenarios**:
   - Pagination zero-index alignment and boundary enforcement.
@@ -77,4 +78,4 @@ A robust, self-contained Python FastAPI service that:
 ## Further Notes
 
 - The 6 knowledge base articles are static markdown documents located in `kb/`.
-- The sample tickets dataset contains 61 records with various completion states.
+- The sample tickets dataset contains 60 records (61 CSV rows including header) with various completion states.

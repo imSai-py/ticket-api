@@ -5,7 +5,7 @@ import logging
 import os
 from typing import List, Optional
 
-from app.retrieval import KBArticle, format_articles_for_prompt
+from app.retrieval import KBArticle, KBRetriever
 from app.schemas import CategoryEnum, PriorityEnum, TriageResponse
 
 logger = logging.getLogger(__name__)
@@ -75,20 +75,25 @@ def call_gemini_model(prompt: str, system_instruction: str = SYSTEM_INSTRUCTION)
         return get_fallback_triage(f"Model error: {exc}")
 
 
+def sanitize_input_text(text: str, max_chars: int = 4000) -> str:
+    """Sanitize and limit input string to maximum character length."""
+    cleaned = text.strip()
+    if len(cleaned) > max_chars:
+        return cleaned[:max_chars]
+    return cleaned
+
+
 def classify_and_reply(
     subject: str,
     text: str,
     matched_articles: Optional[List[KBArticle]] = None,
 ) -> TriageResponse:
     """Classify ticket and generate grounded reply behind a swappable interface."""
-    # Sanitize and truncate inputs exceeding maximum length
-    clean_subject = subject.strip()
-    clean_text = text.strip()
-    if len(clean_text) > 4000:
-        clean_text = clean_text[:4000]
+    clean_subject = sanitize_input_text(subject, max_chars=400)
+    clean_text = sanitize_input_text(text, max_chars=4000)
 
-    # Format retrieved knowledge base articles using shared retriever helper
-    articles_text = format_articles_for_prompt(matched_articles)
+    # Format retrieved knowledge base articles using retriever class method
+    articles_text = KBRetriever.format_articles_for_prompt(matched_articles)
 
     prompt = f"""KNOWLEDGE BASE ARTICLES:
 {articles_text}

@@ -3,9 +3,21 @@
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
 RESOLVED_STATUSES = {"resolved", "closed"}
+
+
+class TicketRecord(TypedDict, total=False):
+    """Schema for individual ticket records processed by the summary service."""
+
+    ticket_id: str
+    category: str
+    status: str
+    created_at: Any
+    created: Any
+    resolved_at: Any
+    resolved: Any
 
 
 @dataclass
@@ -44,11 +56,11 @@ def parse_timestamp(ts_val) -> Optional[datetime]:
 
 
 def compute_metrics_from_tickets(
-    tickets: List[Dict],
+    tickets: List[TicketRecord],
 ) -> Tuple[TicketMetrics, List[str]]:
     """Compute category counts, resolution metrics, and track skipped tickets."""
     category_counts: Counter = Counter(
-        t.get("category", "Uncategorized") for t in tickets
+        ticket.get("category", "Uncategorized") for ticket in tickets
     )
     category_durations: Dict[str, List[float]] = defaultdict(list)
     all_durations: List[float] = []
@@ -56,12 +68,12 @@ def compute_metrics_from_tickets(
     skipped_tickets: Dict[str, List[str]] = defaultdict(list)
     resolution_warnings: List[str] = []
 
-    for t in tickets:
-        ticket_id = t.get("ticket_id", "")
-        category = t.get("category", "Uncategorized")
-        created_dt = parse_timestamp(t.get("created_at") or t.get("created"))
-        resolved_val = t.get("resolved_at") or t.get("resolved")
-        status = str(t.get("status", "")).strip().lower()
+    for ticket in tickets:
+        ticket_id = ticket.get("ticket_id", "")
+        category = ticket.get("category", "Uncategorized")
+        created_dt = parse_timestamp(ticket.get("created_at") or ticket.get("created"))
+        resolved_val = ticket.get("resolved_at") or ticket.get("resolved")
+        status = str(ticket.get("status", "")).strip().lower()
 
         if not resolved_val:
             skipped_tickets["Unresolved / Missing resolution date"].append(ticket_id)

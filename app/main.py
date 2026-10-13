@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from app.retrieval import KBRetriever
 from app.schemas import TriageRequest, TriageResponse
 from app.summary_service import compute_metrics_from_tickets
-from app.triage_ai import classify_and_reply
+from app.triage_ai import classify_and_reply, sanitize_input_text
 
 DEFAULT_DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "tickets_sample.csv"
 DATA_PATH_ENV = os.environ.get("TICKETS_DATA_PATH")
@@ -89,11 +89,8 @@ def summary():
 
 @app.post("/triage", response_model=TriageResponse)
 def triage(req: TriageRequest):
-    # Truncate text prior to retrieval and prompt construction per spec
-    clean_text = req.text.strip()
-    if len(clean_text) > 4000:
-        clean_text = clean_text[:4000]
-
+    # Sanitize and truncate text prior to retrieval and prompt construction per spec
+    clean_text = sanitize_input_text(req.text, max_chars=4000)
     matched = retriever.retrieve(req.subject, clean_text, top_k=2)
     return classify_and_reply(req.subject, clean_text, matched_articles=matched)
 
