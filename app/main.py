@@ -48,16 +48,28 @@ def get_ticket(ticket_id: str):
     raise HTTPException(status_code=404, detail="ticket not found")
 
 
+from app.summary_service import compute_metrics_from_tickets
+
+
 @app.get("/summary")
 def summary():
-    by_category = {}
-    total_hours = 0.0
-    for t in TICKETS:
-        by_category[t["category"]] = by_category.get(t["category"], 0) + 1
-        if t["resolved"]:
-            total_hours += (t["resolved"] - t["created"]).total_seconds() / 3600
-    average = total_hours / len(TICKETS) if TICKETS else 0.0
-    return {"total": len(TICKETS), "by_category": by_category, "average_resolution_hours": round(average, 2)}
+    metrics, _ = compute_metrics_from_tickets(TICKETS)
+    avg_hours = (
+        round(metrics.overall_average_seconds / 3600.0, 2)
+        if metrics.overall_average_seconds is not None
+        else 0.0
+    )
+    cat_avg_hours = {
+        cat: round(sec / 3600.0, 2) if sec is not None else None
+        for cat, sec in metrics.category_average_seconds.items()
+    }
+    return {
+        "total": len(TICKETS),
+        "by_category": dict(metrics.category_counts),
+        "average_resolution_hours": avg_hours,
+        "category_averages": cat_avg_hours,
+        "skipped_tickets": metrics.skipped_tickets,
+    }
 
 
 app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
