@@ -25,7 +25,14 @@ export function App() {
   const [result, setResult] = useState<TriageResult | null>(null);
 
   const env = (import.meta as unknown as { env?: CustomImportMetaEnv }).env;
-  const apiBaseUrl = env?.VITE_API_BASE_URL || "http://localhost:8000";
+  const defaultBaseUrl =
+    typeof window !== "undefined" && window.location.port === "5173"
+      ? "http://localhost:8000"
+      : "";
+  const apiBaseUrl =
+    env?.VITE_API_BASE_URL !== undefined && env.VITE_API_BASE_URL !== ""
+      ? env.VITE_API_BASE_URL
+      : defaultBaseUrl;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -75,6 +82,31 @@ export function App() {
 
   return (
     <div className="container">
+      <nav
+        style={{
+          background: "#f1f5f9",
+          padding: "0.6rem 1rem",
+          borderRadius: "8px",
+          marginBottom: "1.5rem",
+          display: "flex",
+          gap: "1rem",
+          alignItems: "center",
+          fontSize: "0.95rem",
+        }}
+      >
+        <strong>Ticket Hub:</strong>
+        <a href="/triage-ui" style={{ color: "#2563eb", fontWeight: 700, textDecoration: "none" }}>
+          🤖 AI Triage Screen
+        </a>
+        <span>|</span>
+        <a href="/" style={{ color: "#475569", fontWeight: 600, textDecoration: "none" }}>
+          📊 Ticket Overview
+        </a>
+        <span>|</span>
+        <a href="/docs" target="_blank" rel="noreferrer" style={{ color: "#475569", textDecoration: "none" }}>
+          📖 API Docs (Swagger)
+        </a>
+      </nav>
       <h1>AI Support Ticket Triage</h1>
       <p>Submit incoming customer tickets for automated classification and grounded suggested replies.</p>
 

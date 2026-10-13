@@ -20,6 +20,7 @@ DEFAULT_DATA_PATH = (
 DATA_PATH_ENV = os.environ.get("TICKETS_DATA_PATH")
 DATA_PATH = Path(DATA_PATH_ENV).resolve() if DATA_PATH_ENV else DEFAULT_DATA_PATH
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 
 def load_tickets(path):
@@ -107,5 +108,12 @@ def triage(req: TriageRequest):
     matched = retriever.retrieve(req.subject, req.text)
     return classify_and_reply(req.subject, req.text, matched_articles=matched)
 
+
+if FRONTEND_DIR.exists():
+    app.mount(
+        "/triage-ui",
+        StaticFiles(directory=FRONTEND_DIR, html=True),
+        name="triage_ui",
+    )
 
 app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")

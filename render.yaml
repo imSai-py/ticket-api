@@ -13,3 +13,13 @@ services:
         sync: false
       - key: GEMINI_MODEL
         value: gemini-3.7-flash
+
+  - type: static
+    name: ticket-triage-frontend
+    env: static
+    plan: free
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: frontend/dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: https://ticket-api-jl9f.onrender.com
