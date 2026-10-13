@@ -3,10 +3,8 @@
 import json
 import logging
 import os
-from typing import Any
 
 from app.retrieval import (
-    SPANISH_KEYWORDS,
     KBArticle,
     KBRetriever,
     extract_and_sanitize_input,
@@ -84,8 +82,8 @@ def call_gemini_model(
 
 
 def classify_and_reply(
-    subject: Any,
-    text: str | None = None,
+    subject: str,
+    text: str = "",
     matched_articles: list[KBArticle] | None = None,
 ) -> TriageResponse:
     """Classify ticket and generate grounded reply behind a swappable interface."""
@@ -108,29 +106,8 @@ Body: {clean_text}
             allowed_ids = {a.article_id for a in matched_articles}
             res.article_ids = [aid for aid in res.article_ids if aid in allowed_ids]
 
-        if not res.article_ids:
-            lower_reply = res.suggested_reply.lower()
-            escalation_keywords = [
-                "specialist",
-                "human",
-                "representative",
-                "teammate",
-                "follow up",
-                "especialista",
-                "humano",
-                "representante",
-                "revisará",
-                "contacto",
-                "equipo",
-                "persona",
-            ]
-            if not any(k in lower_reply for k in escalation_keywords):
-                combined_lower = f"{clean_subject} {clean_text}".lower()
-                is_spanish = any(w in combined_lower for w in SPANISH_KEYWORDS)
-                if is_spanish:
-                    res.suggested_reply = "Gracias por contactarnos. Un representante de soporte revisará su solicitud en breve."
-                else:
-                    res.suggested_reply = "Thank you for reaching out. A customer support representative will review your request shortly."
+        if not res.suggested_reply or not res.suggested_reply.strip():
+            res.suggested_reply = "Thank you for reaching out. A customer support representative will review your request shortly."
         return res
     except Exception as exc:  # noqa: BLE001
         logger.error("Failed during model execution in classify_and_reply: %s", exc)

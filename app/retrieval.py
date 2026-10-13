@@ -4,7 +4,6 @@ import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 STOP_WORDS: set[str] = {
     "a",
@@ -185,12 +184,6 @@ CROSS_LINGUAL_SYNONYMS: dict[str, list[str]] = {
     "borrar": ["delete", "closing"],
 }
 
-SPANISH_KEYWORDS: set[str] = set(CROSS_LINGUAL_SYNONYMS.keys()) | {
-    "hola",
-    "gracias",
-    "por favor",
-}
-
 
 @dataclass
 class KBArticle:
@@ -209,18 +202,11 @@ def tokenize(text: str) -> list[str]:
 
 
 def extract_and_sanitize_input(
-    subject: Any, text: str | None = None, max_total_chars: int = 4000
+    subject: str, text: str = "", max_total_chars: int = 4000
 ) -> tuple[str, str]:
     """Extract and sanitize ticket subject and body guaranteeing total combined length budget without starving either field."""
-    if hasattr(subject, "subject") and hasattr(subject, "text"):
-        raw_subject = str(getattr(subject, "subject", "") or "")
-        raw_text = str(getattr(subject, "text", "") or "")
-    else:
-        raw_subject = str(subject or "")
-        raw_text = str(text or "")
-
-    clean_raw_subj = raw_subject.strip()
-    clean_raw_text = raw_text.strip()
+    clean_raw_subj = (subject or "").strip()
+    clean_raw_text = (text or "").strip()
     total_len = len(clean_raw_subj) + len(clean_raw_text)
     if total_len <= max_total_chars:
         return clean_raw_subj, clean_raw_text
@@ -315,8 +301,8 @@ class KBRetriever:
 
     def retrieve(
         self,
-        subject: Any,
-        text: str | None = None,
+        subject: str,
+        text: str = "",
         top_k: int = 3,
         min_score: float = 0.5,
     ) -> list[KBArticle]:
@@ -332,6 +318,8 @@ class KBRetriever:
             if token in CROSS_LINGUAL_SYNONYMS:
                 expanded_query_tokens.extend(CROSS_LINGUAL_SYNONYMS[token])
 
+        distinct_query_terms = set(expanded_query_tokens)
+
         scores: list[float] = []
         for idx, doc_tokens in enumerate(self.doc_tokens):
             score = 0.0
@@ -340,7 +328,7 @@ class KBRetriever:
             for t in doc_tokens:
                 token_counts[t] = token_counts.get(t, 0) + 1
 
-            for q_term in expanded_query_tokens:
+            for q_term in distinct_query_terms:
                 if q_term not in self.idf:
                     continue
                 tf = token_counts.get(q_term, 0)

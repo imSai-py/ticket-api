@@ -5,15 +5,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-REQUIRED_COLUMNS = {
-    "ticket_id",
-    "created_at",
-    "resolved_at",
-    "category",
-    "priority",
-    "status",
-}
-
 RESOLVED_STATUSES = {"resolved", "closed"}
 
 
