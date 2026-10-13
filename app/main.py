@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 DEFAULT_DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "tickets_sample.csv"
@@ -28,6 +29,14 @@ def load_tickets(path):
 TICKETS = load_tickets(DATA_PATH)
 
 app = FastAPI(title="ticket-api")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 def public(ticket):
