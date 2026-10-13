@@ -2,6 +2,7 @@ import csv
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -10,6 +11,8 @@ from app.retrieval import KBRetriever
 from app.schemas import TriageRequest, TriageResponse
 from app.triage_ai import classify_and_reply
 from ticket_summary import compute_metrics, parse_iso_timestamp
+
+load_dotenv()
 
 DEFAULT_DATA_PATH = (
     Path(__file__).resolve().parent.parent / "data" / "tickets_sample.csv"

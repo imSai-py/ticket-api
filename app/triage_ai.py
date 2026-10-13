@@ -59,23 +59,44 @@ def call_gemini_model(
         from google.genai import types
 
         client = genai.Client(api_key=api_key)
-        model_name = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")
-        response = client.models.generate_content(
-            model=model_name,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                response_mime_type="application/json",
-                response_schema=TriageResponse,
-                temperature=0.1,
-            ),
-        )
+        preferred_model = os.environ.get("GEMINI_MODEL", "gemini-3.7-flash")
+        candidate_models = [preferred_model]
+        for fallback in (
+            "gemini-3.7-flash",
+            "gemini-3.6-flash",
+            "gemini-3.5-flash",
+            "gemini-3-flash-preview",
+        ):
+            if fallback not in candidate_models:
+                candidate_models.append(fallback)
 
-        if not response.text:
-            raise ValueError("Model returned empty response")
+        last_error = None
+        for model_name in candidate_models:
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_instruction,
+                        response_mime_type="application/json",
+                        response_schema=TriageResponse,
+                        temperature=0.1,
+                    ),
+                )
 
-        data = json.loads(response.text)
-        return TriageResponse.model_validate(data)
+                if not response.text:
+                    raise ValueError("Model returned empty response")
+
+                data = json.loads(response.text)
+                return TriageResponse.model_validate(data)
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                logger.warning("Model invocation failed for %s: %s", model_name, exc)
+                continue
+
+        if last_error:
+            raise last_error
+        raise RuntimeError("No candidate models succeeded")
     except Exception as exc:
         logger.error("Error invoking Gemini model: %s", exc)
         raise
