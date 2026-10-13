@@ -272,3 +272,47 @@ def test_triage_hallucinated_article_ids_filtered_out():
         data = response.json()
         assert "KB-001" in data["article_ids"]
         assert "KB-999" not in data["article_ids"]
+
+
+def test_triage_combined_input_length_budget_enforced():
+    # Enforces 4000 total combined character budget across subject and body
+    long_subject = "A" * 1500  # Will be truncated to 1000
+    long_body = "B" * 5000     # Will be truncated to 4000 - 1000 = 3000
+    mock_reply = TriageResponse(
+        category=CategoryEnum.TECHNICAL,
+        priority=PriorityEnum.NORMAL,
+        suggested_reply="A specialist will review your request shortly.",
+        article_ids=[],
+    )
+    with patch("app.triage_ai.call_gemini_model", return_value=mock_reply) as mock_model:
+        response = client.post(
+            "/triage",
+            json={"subject": long_subject, "text": long_body},
+        )
+        assert response.status_code == 200
+        assert mock_model.called
+        sent_prompt = mock_model.call_args[0][0]
+        # Verify customer ticket content in prompt does not exceed budget
+        assert "A" * 1000 in sent_prompt
+        assert "A" * 1001 not in sent_prompt
+        assert "B" * 3000 in sent_prompt
+        assert "B" * 3001 not in sent_prompt
+
+
+def test_triage_model_failure_unclassified_defaults_to_technical():
+    # Verifies unclassified ticket defaults to Technical and normal on model failure
+    with patch("app.triage_ai.call_gemini_model", side_effect=RuntimeError("Connection dropped")):
+        response = client.post(
+            "/triage",
+            json={
+                "subject": "Greetings",
+                "text": "Hello there, just checking in with a generic inquiry.",
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["category"] == "Technical"
+        assert data["priority"] == "normal"
+        assert "review" in data["suggested_reply"]
+        assert data["article_ids"] == []
+

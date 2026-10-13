@@ -12,6 +12,12 @@ try {
     $failed = $true
 }
 
+if (Get-Command ruff -ErrorAction SilentlyContinue) {
+    Write-Host "`nChecking Python formatting and linting (ruff)..." -ForegroundColor Cyan
+    ruff check .
+    if ($LASTEXITCODE -ne 0) { $failed = $true }
+}
+
 if (Test-Path "frontend/package.json") {
     Write-Host "`n========================================" -ForegroundColor Cyan
     Write-Host "2. Testing Frontend (Vitest & tsc)..." -ForegroundColor Cyan
