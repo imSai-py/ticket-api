@@ -6,6 +6,7 @@ import os
 from typing import Any
 
 from app.retrieval import (
+    SPANISH_KEYWORDS,
     KBArticle,
     KBRetriever,
     extract_and_sanitize_input,
@@ -83,12 +84,12 @@ def call_gemini_model(
 
 
 def classify_and_reply(
-    subject_or_request: Any,
+    subject: Any,
     text: str | None = None,
     matched_articles: list[KBArticle] | None = None,
 ) -> TriageResponse:
     """Classify ticket and generate grounded reply behind a swappable interface."""
-    clean_subject, clean_text = extract_and_sanitize_input(subject_or_request, text)
+    clean_subject, clean_text = extract_and_sanitize_input(subject, text)
 
     # Format retrieved knowledge base articles using retriever class method
     articles_text = KBRetriever.format_articles_for_prompt(matched_articles)
@@ -125,17 +126,7 @@ Body: {clean_text}
             ]
             if not any(k in lower_reply for k in escalation_keywords):
                 combined_lower = f"{clean_subject} {clean_text}".lower()
-                is_spanish = any(
-                    w in combined_lower
-                    for w in [
-                        "hola",
-                        "contraseña",
-                        "acceso",
-                        "cuenta",
-                        "gracias",
-                        "por favor",
-                    ]
-                )
+                is_spanish = any(w in combined_lower for w in SPANISH_KEYWORDS)
                 if is_spanish:
                     res.suggested_reply = "Gracias por contactarnos. Un representante de soporte revisará su solicitud en breve."
                 else:

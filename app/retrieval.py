@@ -185,6 +185,12 @@ CROSS_LINGUAL_SYNONYMS: dict[str, list[str]] = {
     "borrar": ["delete", "closing"],
 }
 
+SPANISH_KEYWORDS: set[str] = set(CROSS_LINGUAL_SYNONYMS.keys()) | {
+    "hola",
+    "gracias",
+    "por favor",
+}
+
 
 @dataclass
 class KBArticle:
@@ -203,14 +209,14 @@ def tokenize(text: str) -> list[str]:
 
 
 def extract_and_sanitize_input(
-    subject_or_request: Any, text: str | None = None, max_total_chars: int = 4000
+    subject: Any, text: str | None = None, max_total_chars: int = 4000
 ) -> tuple[str, str]:
     """Extract and sanitize ticket subject and body guaranteeing total combined length budget without starving either field."""
-    if hasattr(subject_or_request, "subject") and hasattr(subject_or_request, "text"):
-        raw_subject = str(getattr(subject_or_request, "subject", "") or "")
-        raw_text = str(getattr(subject_or_request, "text", "") or "")
+    if hasattr(subject, "subject") and hasattr(subject, "text"):
+        raw_subject = str(getattr(subject, "subject", "") or "")
+        raw_text = str(getattr(subject, "text", "") or "")
     else:
-        raw_subject = str(subject_or_request or "")
+        raw_subject = str(subject or "")
         raw_text = str(text or "")
 
     clean_raw_subj = raw_subject.strip()
@@ -309,13 +315,13 @@ class KBRetriever:
 
     def retrieve(
         self,
-        subject_or_request: Any,
+        subject: Any,
         text: str | None = None,
         top_k: int = 3,
         min_score: float = 0.5,
     ) -> list[KBArticle]:
         """Score articles against ticket subject and body and return top matches."""
-        clean_subject, clean_text = extract_and_sanitize_input(subject_or_request, text)
+        clean_subject, clean_text = extract_and_sanitize_input(subject, text)
         query_text = f"{clean_subject} {clean_text}"
         query_tokens = tokenize(query_text)
         if not query_tokens or not self.articles:

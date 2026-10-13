@@ -8,8 +8,8 @@ from fastapi.staticfiles import StaticFiles
 
 from app.retrieval import KBRetriever
 from app.schemas import TriageRequest, TriageResponse
-from app.summary_service import compute_metrics_from_tickets, parse_timestamp
 from app.triage_ai import classify_and_reply
+from ticket_summary import compute_metrics, parse_iso_timestamp
 
 DEFAULT_DATA_PATH = (
     Path(__file__).resolve().parent.parent / "data" / "tickets_sample.csv"
@@ -23,8 +23,8 @@ def load_tickets(path):
     tickets = []
     with open(path, newline="") as f:
         for row in csv.DictReader(f):
-            row["created"] = parse_timestamp(row["created_at"])
-            row["resolved"] = parse_timestamp(row["resolved_at"])
+            row["created"] = parse_iso_timestamp(row["created_at"])
+            row["resolved"] = parse_iso_timestamp(row["resolved_at"])
             tickets.append(row)
     return tickets
 
@@ -89,7 +89,7 @@ def get_ticket(ticket_id: str):
 
 @app.get("/summary")
 def summary():
-    metrics, _ = compute_metrics_from_tickets(TICKETS)
+    metrics, _ = compute_metrics(TICKETS)
     return {
         "total": len(TICKETS),
         "by_category": dict(metrics.category_counts),
