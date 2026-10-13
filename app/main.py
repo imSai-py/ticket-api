@@ -6,7 +6,9 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 
-DATA_PATH = os.environ["TICKETS_DATA_PATH"]
+DEFAULT_DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "tickets_sample.csv"
+DATA_PATH_ENV = os.environ.get("TICKETS_DATA_PATH")
+DATA_PATH = Path(DATA_PATH_ENV).resolve() if DATA_PATH_ENV else DEFAULT_DATA_PATH
 FMT = "%Y-%m-%d %H:%M"
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
@@ -34,7 +36,7 @@ def public(ticket):
 
 @app.get("/tickets")
 def list_tickets(page: int = Query(1, ge=1), size: int = Query(10, ge=1, le=100)):
-    start = (page - 1) * size + 1
+    start = (page - 1) * size
     return [public(t) for t in TICKETS[start : start + size]]
 
 

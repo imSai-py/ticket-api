@@ -14,6 +14,22 @@ def test_summary_has_categories():
 def test_first_page_has_ten_tickets():
     body = client.get("/tickets?page=1&size=10").json()
     assert len(body) == 10
+    assert body[0]["ticket_id"] == "TCK-1001"
+    assert body[9]["ticket_id"] == "TCK-1010"
+
+
+def test_second_page_continues_tickets():
+    body = client.get("/tickets?page=2&size=10").json()
+    assert len(body) == 10
+    assert body[0]["ticket_id"] == "TCK-1011"
+
+
+def test_default_data_path_loads():
+    from app.main import DEFAULT_DATA_PATH, load_tickets
+
+    loaded = load_tickets(DEFAULT_DATA_PATH)
+    assert len(loaded) > 0
+    assert loaded[0]["ticket_id"] == "TCK-1001"
 
 
 def test_unknown_ticket_is_404():

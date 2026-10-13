@@ -4,17 +4,35 @@ A small service that serves support ticket data and a summary, plus a simple web
 
 Requires Python 3.8 or newer.
 
-## Run
+## Setup & Run
 
-```
-pip install -r requirements.txt
-uvicorn main:app --reload
-```
+1. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-Then open http://localhost:8000/docs for the API, or http://localhost:8000/ for the web page.
+2. Run the server:
+   ```bash
+   uvicorn app.main:app --reload
+   ```
 
-## Test
+3. Open the application:
+   - Web interface: http://localhost:8000/
+   - Interactive API docs (Swagger): http://localhost:8000/docs
+   - OpenAPI schema: http://localhost:8000/openapi.json
 
-```
+## Configuration
+
+The service supports the following environment variable:
+- `TICKETS_DATA_PATH`: Optional path to the ticket CSV dataset. Defaults to `data/tickets_sample.csv`.
+
+## Testing
+
+Run tests with pytest:
+```bash
 pytest
+```
+Or run the unified verification script:
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/verify-all.ps1
 ```
