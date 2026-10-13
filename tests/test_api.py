@@ -7,8 +7,18 @@ client = TestClient(app)
 
 def test_summary_has_categories():
     body = client.get("/summary").json()
-    assert body["total"] > 0
+    assert body["total"] == 60
     assert "Billing" in body["by_category"]
+
+
+def test_summary_calculates_correct_resolution_average():
+    body = client.get("/summary").json()
+    # 42 resolved tickets with 1061.39 total hours yields 25.27 hours avg
+    assert body["average_resolution_hours"] == 25.27
+    assert "category_averages" in body
+    assert body["category_averages"]["Billing"] == 37.9
+    assert "skipped_tickets" in body
+    assert len(body["skipped_tickets"]["Unresolved / Missing resolution date"]) == 18
 
 
 def test_first_page_has_ten_tickets():
