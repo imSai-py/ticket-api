@@ -348,3 +348,14 @@ def test_triage_model_failure_unclassified_defaults_to_technical():
         assert data["priority"] == "normal"
         assert "review" in data["suggested_reply"]
         assert data["article_ids"] == []
+
+
+def test_triage_ui_redirects():
+    # Verifies both /triage-ui and /triage redirect to /triage-ui/
+    resp_ui = client.get("/triage-ui", follow_redirects=False)
+    assert resp_ui.status_code == 307
+    assert resp_ui.headers["location"] == "/triage-ui/"
+
+    resp_triage = client.get("/triage", follow_redirects=False)
+    assert resp_triage.status_code == 307
+    assert resp_triage.headers["location"] == "/triage-ui/"

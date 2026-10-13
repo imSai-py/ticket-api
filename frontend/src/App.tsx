@@ -95,7 +95,7 @@ export function App() {
         }}
       >
         <strong>Ticket Hub:</strong>
-        <a href="/triage-ui" style={{ color: "#2563eb", fontWeight: 700, textDecoration: "none" }}>
+        <a href="/triage-ui/" style={{ color: "#2563eb", fontWeight: 700, textDecoration: "none" }}>
           🤖 AI Triage Screen
         </a>
         <span>|</span>

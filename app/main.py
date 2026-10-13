@@ -5,6 +5,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.retrieval import KBRetriever
@@ -107,6 +108,16 @@ def summary():
 def triage(req: TriageRequest):
     matched = retriever.retrieve(req.subject, req.text)
     return classify_and_reply(req.subject, req.text, matched_articles=matched)
+
+
+@app.get("/triage-ui")
+def redirect_triage_ui():
+    return RedirectResponse(url="/triage-ui/")
+
+
+@app.get("/triage")
+def redirect_triage():
+    return RedirectResponse(url="/triage-ui/")
 
 
 if FRONTEND_DIR.exists():
