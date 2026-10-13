@@ -72,4 +72,17 @@ def summary():
     }
 
 
+from app.retrieval import KBRetriever
+from app.schemas import TriageRequest, TriageResponse
+from app.triage_ai import classify_and_reply
+
+retriever = KBRetriever()
+
+
+@app.post("/triage", response_model=TriageResponse)
+def triage(req: TriageRequest):
+    matched = retriever.retrieve(req.subject, req.text, top_k=2)
+    return classify_and_reply(req.subject, req.text, matched_articles=matched)
+
+
 app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
