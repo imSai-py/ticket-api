@@ -3,5 +3,5 @@
 - Invoices are emailed at the start of each billing period and can be downloaded from Account > Billing.
 - You can change your plan at any time. The new price applies from the next billing period.
 - If you see a charge you do not recognise, check the invoice list first. Charges for annual plans appear once a year.
-- Billing disputes and refund requests for subscriptions can be raised within 30 days of the charge.
+- Billing disputes and refund requests for subscription plans can be raised within 30 days of the charge. (Standard one-time product purchases follow the 14-day policy in KB-002).
 - We accept major credit and debit cards. Other payment methods are not currently supported.

@@ -53,8 +53,12 @@ def test_triage_sample_s2_refund():
     mock_reply = TriageResponse(
         category=CategoryEnum.REFUNDS,
         priority=PriorityEnum.NORMAL,
-        suggested_reply="Refund requests are eligible within 30 days of purchase and take 5-7 business days to process.",
-        article_ids=["KB-002"],
+        suggested_reply=(
+            "Standard product refunds must be requested within 14 days of purchase per KB-002. "
+            "Subscription plan refund disputes can be submitted within 30 days per KB-003. "
+            "Our support team will review your order 8841 to verify eligibility."
+        ),
+        article_ids=["KB-002", "KB-003"],
     )
     with patch(
         "app.triage_ai.call_gemini_model", return_value=mock_reply
@@ -361,8 +365,8 @@ def test_triage_ui_redirects():
     assert resp_triage.headers["location"] == "/triage-ui/"
 
 
-def test_call_gemini_model_limits_candidate_models_to_three():
-    """Verify call_gemini_model limits fallback model candidates to at most 3 models to prevent latency spikes."""
+def test_call_gemini_model_limits_candidate_models_and_configures_timeout():
+    """Verify call_gemini_model limits fallback model candidates to at most 2 models and configures timeout."""
     from unittest.mock import MagicMock
 
     import pytest
@@ -378,17 +382,26 @@ def test_call_gemini_model_limits_candidate_models_to_three():
     mock_client = MagicMock()
     mock_client.models.generate_content.side_effect = mock_generate_content
 
+    captured_client_kwargs = {}
+
+    def mock_genai_client(*args, **kwargs):
+        captured_client_kwargs.update(kwargs)
+        return mock_client
+
     with (
-        patch.dict("os.environ", {"GEMINI_API_KEY": "test_api_key"}),
-        patch("google.genai.Client", return_value=mock_client),
+        patch.dict(
+            "os.environ",
+            {"GEMINI_API_KEY": "test_api_key", "GEMINI_TIMEOUT_MS": "8000"},
+        ),
+        patch("google.genai.Client", side_effect=mock_genai_client),
         pytest.raises(RuntimeError),
     ):
         call_gemini_model("Sample prompt")
 
-    assert len(attempted_models) <= 3
-    assert len(attempted_models) >= 2
+    assert len(attempted_models) == 2
     assert attempted_models == [
         "gemini-3.1-flash-lite",
         "gemini-3.5-flash-lite",
-        "gemini-3.8-flash",
     ]
+    assert "http_options" in captured_client_kwargs
+    assert captured_client_kwargs["http_options"].timeout == 8000
