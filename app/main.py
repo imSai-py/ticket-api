@@ -1,13 +1,12 @@
 import csv
-import hashlib
 import os
 from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -16,6 +15,9 @@ from app.escalation import send_escalation_alert
 from app.retrieval import KBRetriever
 from app.schemas import TriageRequest, TriageResponse
 from app.tracking_sync import (
+    SpreadsheetLockedError,
+    extract_operational_reason,
+    get_next_ticket_id,
     get_pending_approvals,
     sync_ticket_to_spreadsheet,
     update_approval_status,
@@ -62,6 +64,17 @@ ALLOWED_ORIGINS = (
 )
 
 app = FastAPI(title="ticket-api")
+
+
+@app.exception_handler(SpreadsheetLockedError)
+def spreadsheet_locked_handler(
+    request: Request, exc: SpreadsheetLockedError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=423,
+        content={"detail": str(exc)},
+    )
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -121,8 +134,7 @@ class SyncTicketRequest(BaseModel):
     priority: str = "normal"
     amount: float | None = None
     reason: str = ""
-    agent: str = "System"
-    notes: str = ""
+    agent: str = "Mara"
     escalated: bool = False
 
 
@@ -153,9 +165,7 @@ def ops_approval_action(ticket_id: str, status: str = Query(...)) -> HTMLRespons
             detail="Invalid status. Status must be 'Approved' or 'Rejected'.",
         )
     try:
-        update_approval_status(
-            ticket_id, new_status=status, notes="One-click email action"
-        )
+        update_approval_status(ticket_id, new_status=status)
     except ValueError as e:
         raise HTTPException(
             status_code=404, detail=f"Ticket not found: {ticket_id}"
@@ -213,16 +223,40 @@ def triage(req: TriageRequest) -> TriageResponse:
     matched = retriever.retrieve(req.subject, req.text)
     res = classify_and_reply(req.subject, req.text, matched_articles=matched)
     if str(res.category) == "Billing":
-        token = f"{req.subject} {req.text}".encode()
-        hash_suffix = hashlib.sha256(token).hexdigest()[:6].upper()
+        clean_subj = " ".join(req.subject.replace("\r", " ").replace("\n", " ").split())
+        clean_text = " ".join(req.text.replace("\r", " ").replace("\n", " ").split())
+
+        # Determine ticket ID: use provided ticket_id or next sequential TCK-XXXX
+        ticket_id = req.ticket_id.strip() if getattr(req, "ticket_id", "") else ""
+        if not ticket_id:
+            ticket_id = get_next_ticket_id()
+
+        # Determine customer name: from request or default to Customer
+        customer = (
+            req.customer_name.strip()
+            if getattr(req, "customer_name", "")
+            else "Customer"
+        )
+
+        # Determine support agent: from request or default to Mara
+        agent = req.agent.strip() if getattr(req, "agent", "") else "Mara"
+
+        # Determine operational reason: from request or extracted from text
+        provided_reason = req.reason.strip() if getattr(req, "reason", "") else ""
+        if provided_reason:
+            reason = provided_reason
+        else:
+            reason = extract_operational_reason(clean_subj, clean_text)
+
         row = sync_ticket_to_spreadsheet(
             {
-                "ticket_id": f"TCK-AUTO-{hash_suffix}",
-                "customer_name": "Incoming Customer",
+                "ticket_id": ticket_id,
+                "customer_name": customer,
                 "category": "Billing",
                 "priority": str(res.priority),
-                "reason": f"{req.subject}: {req.text}".strip(": "),
-                "agent": "AI Triage",
+                "reason": reason,
+                "text": clean_text,
+                "agent": agent,
             }
         )
         if str(res.priority) == "urgent":

@@ -28,6 +28,16 @@ class TriageRequest(BaseModel):
     text: str = Field(
         default="", description="Detailed message body of customer ticket"
     )
+    customer_name: str = Field(
+        default="Customer", description="Name of the customer (required in UI)"
+    )
+    ticket_id: str = Field(
+        default="", description="Optional help desk ticket ID (e.g. TCK-1020)"
+    )
+    agent: str = Field(default="Mara", description="Support agent handling the ticket")
+    reason: str = Field(
+        default="", description="Optional specific reason for ticket approval"
+    )
 
     model_config = ConfigDict(extra="ignore")
 
