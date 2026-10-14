@@ -61,18 +61,15 @@ def call_gemini_model(
         client = genai.Client(api_key=api_key)
         preferred_model = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite")
         candidate_models = [preferred_model]
+        # Keep 2 to 3 fallback models max to prevent long sequential timeouts and latency spikes
         for fallback in (
             "gemini-3.1-flash-lite",
-            "gemini-3.1-flash-lite-preview",
             "gemini-3.5-flash-lite",
-            "gemini-3-flash-preview",
-            "gemini-3.7-flash",
             "gemini-3.8-flash",
-            "gemini-3.6-flash",
-            "gemini-3.5-flash",
         ):
             if fallback not in candidate_models:
                 candidate_models.append(fallback)
+        candidate_models = candidate_models[:3]
 
         last_error = None
         for model_name in candidate_models:

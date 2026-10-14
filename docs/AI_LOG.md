@@ -7,7 +7,7 @@ This document records the transparent usage of AI assistance across Task 2 and T
 ## 1. Tools and Models Used
 
 - **Development Assistant**: Google Antigravity Agentic Assistant powered by Gemini models for code generation, test authoring, refactoring, and code review.
-- **Runtime Inference Models**: Google Gemini API via `google-genai` SDK (`gemini-3.1-flash-lite` primary model with fallback cascade to `gemini-3.1-flash-lite-preview`, `gemini-3.5-flash-lite`, and `gemini-3.7-flash`).
+- **Runtime Inference Models**: Google Gemini API via `google-genai` SDK (`gemini-3.1-flash-lite` primary model with low-latency fallback cascade to `gemini-3.5-flash-lite` and `gemini-3.8-flash`).
 
 ---
 

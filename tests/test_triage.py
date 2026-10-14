@@ -359,3 +359,36 @@ def test_triage_ui_redirects():
     resp_triage = client.get("/triage", follow_redirects=False)
     assert resp_triage.status_code == 307
     assert resp_triage.headers["location"] == "/triage-ui/"
+
+
+def test_call_gemini_model_limits_candidate_models_to_three():
+    """Verify call_gemini_model limits fallback model candidates to at most 3 models to prevent latency spikes."""
+    from unittest.mock import MagicMock
+
+    import pytest
+
+    from app.triage_ai import call_gemini_model
+
+    attempted_models = []
+
+    def mock_generate_content(*args, **kwargs):
+        attempted_models.append(kwargs.get("model"))
+        raise RuntimeError("Transient upstream 503")
+
+    mock_client = MagicMock()
+    mock_client.models.generate_content.side_effect = mock_generate_content
+
+    with (
+        patch.dict("os.environ", {"GEMINI_API_KEY": "test_api_key"}),
+        patch("google.genai.Client", return_value=mock_client),
+        pytest.raises(RuntimeError),
+    ):
+        call_gemini_model("Sample prompt")
+
+    assert len(attempted_models) <= 3
+    assert len(attempted_models) >= 2
+    assert attempted_models == [
+        "gemini-3.1-flash-lite",
+        "gemini-3.5-flash-lite",
+        "gemini-3.8-flash",
+    ]
