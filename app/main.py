@@ -9,6 +9,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from app.batch_digest import generate_batch_digest
 from app.escalation import send_escalation_alert
 from app.retrieval import KBRetriever
 from app.schemas import TriageRequest, TriageResponse
@@ -129,6 +130,12 @@ def ops_sync_ticket(req: SyncTicketRequest):
 def ops_get_pending():
     pending = get_pending_approvals()
     return {"pending_count": len(pending), "pending_approvals": pending}
+
+
+@app.post("/ops/approvals/send-digest")
+def ops_send_digest():
+    digest = generate_batch_digest()
+    return digest
 
 
 @app.post("/triage", response_model=TriageResponse)
