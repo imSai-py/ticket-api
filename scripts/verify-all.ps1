@@ -1,34 +1,41 @@
 # Unified verification script for ticket-api
+param(
+    [switch]$BackendOnly,
+    [switch]$FrontendOnly
+)
+
 $ErrorActionPreference = "Stop"
 $failed = $false
 
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "1. Testing Python ticket-api (pytest)..." -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-try {
-    python -m pytest tests -v
-    if ($LASTEXITCODE -ne 0) { $failed = $true }
-} catch {
-    $failed = $true
+if (-not $FrontendOnly) {
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "1. Testing Python ticket-api (pytest)..." -ForegroundColor Cyan
+    Write-Host "========================================" -ForegroundColor Cyan
+    try {
+        python -m pytest tests -v
+        if ($LASTEXITCODE -ne 0) { $failed = $true }
+    } catch {
+        $failed = $true
+    }
+
+    Write-Host "`nChecking Python formatting and linting (ruff)..." -ForegroundColor Cyan
+    try {
+        ruff check .
+        if ($LASTEXITCODE -ne 0) { $failed = $true }
+    } catch {
+        $failed = $true
+    }
+
+    Write-Host "`nChecking Python code style (black)..." -ForegroundColor Cyan
+    try {
+        black --check .
+        if ($LASTEXITCODE -ne 0) { $failed = $true }
+    } catch {
+        $failed = $true
+    }
 }
 
-Write-Host "`nChecking Python formatting and linting (ruff)..." -ForegroundColor Cyan
-try {
-    ruff check .
-    if ($LASTEXITCODE -ne 0) { $failed = $true }
-} catch {
-    $failed = $true
-}
-
-Write-Host "`nChecking Python code style (black)..." -ForegroundColor Cyan
-try {
-    black --check .
-    if ($LASTEXITCODE -ne 0) { $failed = $true }
-} catch {
-    $failed = $true
-}
-
-if (Test-Path "frontend/package.json") {
+if (-not $BackendOnly -and (Test-Path "frontend/package.json")) {
     Write-Host "`n========================================" -ForegroundColor Cyan
     Write-Host "2. Testing Frontend (Vitest & tsc)..." -ForegroundColor Cyan
     Write-Host "========================================" -ForegroundColor Cyan

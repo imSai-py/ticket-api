@@ -79,3 +79,23 @@ def test_sync_ticket_with_explicit_escalated_flag():
     data = res.json()
     assert data["ticket"]["escalated"] == "True"
     assert data["escalation_alert"]["dispatched"] is True
+
+
+def test_sync_ticket_returns_423_when_spreadsheet_locked(monkeypatch):
+    from app.tracking_sync import SpreadsheetLockedError
+
+    def mock_sync(*args, **kwargs):
+        raise SpreadsheetLockedError("File is locked by Excel")
+
+    monkeypatch.setattr("app.main.sync_ticket_to_spreadsheet", mock_sync)
+
+    payload = {
+        "ticket_id": "TCK-LOCK-HTTP",
+        "customer_name": "Lock Test",
+        "category": "Billing",
+        "priority": "normal",
+        "amount": 50.0,
+    }
+    res = client.post("/ops/sync-ticket", json=payload)
+    assert res.status_code == 423
+    assert "File is locked by Excel" in res.json()["detail"]

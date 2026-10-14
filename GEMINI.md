@@ -1,5 +1,8 @@
 # Agent Instructions & Workflow
 
+## Repository Navigation
+- **Git & Execution Root:** `ticket-api/` (all git commands, build scripts, test suites, and application servers execute inside `ticket-api/`).
+
 ## 1. Communication Protocol
 - **Language Standard**: Use ASD-STE 100 language for all communication.
 - **Style**: Concise, direct GitHub-flavored markdown.
@@ -31,6 +34,10 @@
     - Linux / macOS: `bash scripts/verify-all.sh`
   - Show verification evidence (command output) prior to claiming task completion.
 - **Code Integrity**: Preserve existing docstrings, type annotations, and comments unless explicitly instructed otherwise.
+- **Delimited Flat-File Storage**:
+  - All text fields written to CSV or delimited storage must pass through `sanitize_cell()` to strip raw newlines (`\r`, `\n`) and tab characters, ensuring single-line record integrity.
+  - Currency values formatted with commas (e.g. `$1,250.00`) must be normalized to standard float formatting before persistence.
+  - File operations on shared tabular files must handle file lock contention (e.g., `PermissionError` / `SpreadsheetLockedError`) gracefully with user-friendly remediation advice.
 
 ## 4. Pull Request (PR) & Ticket Lifecycle
 - **PR Timing & Batching Policy**:

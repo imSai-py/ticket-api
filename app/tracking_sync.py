@@ -108,25 +108,47 @@ def extract_amount(text: str) -> tuple[float, str]:
     return 0.0, "Needs amount verification"
 
 
+class SpreadsheetLockedError(Exception):
+    """Raised when the tracking spreadsheet file is locked by an external process."""
+
+
 def _ensure_file_exists(csv_path: str) -> None:
     """Ensure directory and CSV file with header exist."""
     os.makedirs(os.path.dirname(os.path.abspath(csv_path)), exist_ok=True)
     if not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0:
-        with open(csv_path, mode="w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
-            writer.writeheader()
+        try:
+            with open(csv_path, mode="w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
+                writer.writeheader()
+        except PermissionError as err:
+            logger.error(
+                "Spreadsheet file %s is locked by an external process: %s",
+                csv_path,
+                err,
+            )
+            raise SpreadsheetLockedError(
+                f"The spreadsheet file '{csv_path}' is currently open in Microsoft Excel or another program. "
+                "Please close the file in Excel and click Triage Ticket again."
+            ) from err
 
 
 def _read_all(csv_path: str) -> list[dict[str, Any]]:
     """Read all rows from the tracking CSV file."""
     _ensure_file_exists(csv_path)
-    with open(csv_path, mode="r", newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        return list(reader)
-
-
-class SpreadsheetLockedError(Exception):
-    """Raised when the tracking spreadsheet file is locked by an external process."""
+    try:
+        with open(csv_path, mode="r", newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            return list(reader)
+    except PermissionError as err:
+        logger.error(
+            "Spreadsheet file %s is locked by an external process: %s",
+            csv_path,
+            err,
+        )
+        raise SpreadsheetLockedError(
+            f"The spreadsheet file '{csv_path}' is currently open in Microsoft Excel or another program. "
+            "Please close the file in Excel and click Triage Ticket again."
+        ) from err
 
 
 def _write_all(csv_path: str, rows: list[dict[str, Any]]) -> None:

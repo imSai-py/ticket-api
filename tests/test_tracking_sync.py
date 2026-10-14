@@ -1,10 +1,12 @@
 import pytest
 
 from app.tracking_sync import (
+    SpreadsheetLockedError,
     extract_amount,
     extract_operational_reason,
     get_next_ticket_id,
     get_pending_approvals,
+    sanitize_cell,
     sync_ticket_to_spreadsheet,
     update_approval_status,
 )
@@ -185,3 +187,53 @@ def test_extract_operational_reason():
     )
     assert "Duplicate charge refund" in reason
     assert "9401" in reason
+
+
+def test_extract_amount_comma_formatted():
+    text1 = "Customer disputing $1,250.00 charge on enterprise plan."
+    amt1, note1 = extract_amount(text1)
+    assert amt1 == 1250.00
+    assert note1 == ""
+
+    text2 = "Disputed amount is 10,500.50 USD from annual invoice."
+    amt2, note2 = extract_amount(text2)
+    assert amt2 == 10500.50
+    assert note2 == ""
+
+    text3 = "Refund request for $ 3,000 for canceled contract."
+    amt3, note3 = extract_amount(text3)
+    assert amt3 == 3000.0
+    assert note3 == ""
+
+
+def test_sanitize_cell_removes_newlines_and_normalizes_whitespace():
+    assert sanitize_cell("Line 1\r\nLine 2\tLine 3") == "Line 1 Line 2 Line 3"
+    assert sanitize_cell("   Multiple    spaces   ") == "Multiple spaces"
+    assert sanitize_cell(None) == ""
+    assert sanitize_cell(12345) == "12345"
+
+
+def test_file_lock_raises_spreadsheet_locked_error(temp_csv, monkeypatch):
+    import builtins
+
+    real_open = builtins.open
+
+    def locked_open(file, *args, **kwargs):
+        mode = kwargs.get("mode", args[0] if args else "r")
+        if "w" in str(mode) and str(file) == temp_csv:
+            raise PermissionError("[Errno 13] Permission denied (file locked in Excel)")
+        return real_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", locked_open)
+
+    ticket = {
+        "ticket_id": "TCK-LOCK-01",
+        "customer_name": "Test User",
+        "category": "Billing",
+        "priority": "normal",
+        "amount": 100.0,
+    }
+    with pytest.raises(SpreadsheetLockedError) as exc_info:
+        sync_ticket_to_spreadsheet(ticket, csv_path=temp_csv)
+
+    assert "currently open in Microsoft Excel" in str(exc_info.value)

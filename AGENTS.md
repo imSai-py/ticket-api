@@ -1,5 +1,9 @@
 # Agent Instructions
 
+## Repository Navigation
+
+- **Git & Execution Root:** `ticket-api/` (all git commands, build scripts, test suites, and application servers execute inside `ticket-api/`).
+
 ## Agent skills
 
 ### Issue tracker
