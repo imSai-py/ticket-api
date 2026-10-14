@@ -83,20 +83,25 @@ def extract_amount(text: str) -> tuple[float, str]:
     if not text:
         return 0.0, "Needs amount verification"
 
-    # Match patterns like $49.99, $ 50, 50.00 USD, 50 dollars
-    dollar_match = re.search(r"\$\s*([0-9]+(?:\.[0-9]{1,2})?)", text)
+    # Match patterns like $1,250.00, $49.99, $ 50, 1,250.00 USD, 50 dollars
+    dollar_match = re.search(
+        r"\$\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)",
+        text,
+    )
     if dollar_match:
         try:
-            return float(dollar_match.group(1)), ""
+            return float(dollar_match.group(1).replace(",", "")), ""
         except ValueError:
             pass
 
     usd_match = re.search(
-        r"([0-9]+(?:\.[0-9]{1,2})?)\s*(?:usd|dollars?)", text, re.IGNORECASE
+        r"([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)\s*(?:usd|dollars?)",
+        text,
+        re.IGNORECASE,
     )
     if usd_match:
         try:
-            return float(usd_match.group(1)), ""
+            return float(usd_match.group(1).replace(",", "")), ""
         except ValueError:
             pass
 
@@ -144,8 +149,10 @@ def _write_all(csv_path: str, rows: list[dict[str, Any]]) -> None:
         ) from err
 
 
-def is_ticket_urgent(ticket: dict[str, Any]) -> bool:
+def is_ticket_urgent(ticket: OpsTicketRecord | dict[str, Any]) -> bool:
     """Determine whether a ticket is urgent or explicitly escalated."""
+    if isinstance(ticket, OpsTicketRecord):
+        return ticket.priority == "urgent" or ticket.escalated.lower() == "true"
     return (
         ticket.get("priority") == "urgent"
         or str(ticket.get("escalated", "")).lower() == "true"
@@ -329,6 +336,10 @@ def update_approval_status(
     target["status"] = new_status
     target["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     if notes:
-        target["notes"] = sanitize_cell(notes)
+        existing = str(target.get("notes") or "").strip()
+        if existing and notes not in existing:
+            target["notes"] = sanitize_cell(f"{existing}; {notes}")
+        else:
+            target["notes"] = sanitize_cell(notes)
     _write_all(path, rows)
     return target

@@ -36,7 +36,8 @@ def test_notes_column_in_fieldnames_and_verification_flag(temp_csv):
     updated = update_approval_status(
         "TCK-2001", "Approved", notes="Approved per policy", csv_path=temp_csv
     )
-    assert updated.get("notes") == "Approved per policy"
+    assert "Approved per policy" in updated.get("notes")
+    assert "Needs amount verification" in updated.get("notes")
 
 
 def test_verification_note_appends_to_existing_notes(temp_csv):
@@ -75,3 +76,31 @@ def test_one_click_approval_minimal_html_contract(temp_csv, monkeypatch):
     assert response.status_code == 200
     expected_html = "<html><body><h3>✓ Ticket TCK-2002 marked Approved. You may close this tab.</h3></body></html>"
     assert response.text.strip() == expected_html
+
+
+def test_extract_amount_handles_commas():
+    """Spec line 51: comma formatted currencies."""
+    from app.tracking_sync import extract_amount
+
+    amt, note = extract_amount("Requesting a refund of $1,250.00 for server renewal")
+    assert amt == 1250.00
+    assert note == ""
+
+
+def test_update_approval_status_preserves_and_appends_audit_notes(temp_csv):
+    """Spec line 41: preserving audit notes across status updates."""
+    ticket = {
+        "ticket_id": "TCK-AUDIT-01",
+        "customer_name": "Audit User",
+        "category": "Billing",
+        "priority": "normal",
+        "reason": "Missing amount dispute",
+        "agent": "Mara",
+    }
+    sync_ticket_to_spreadsheet(ticket, csv_path=temp_csv)
+    # Initially has "Needs amount verification"
+    updated = update_approval_status(
+        "TCK-AUDIT-01", "Approved", notes="Approved by manager", csv_path=temp_csv
+    )
+    assert "Needs amount verification" in updated["notes"]
+    assert "Approved by manager" in updated["notes"]
