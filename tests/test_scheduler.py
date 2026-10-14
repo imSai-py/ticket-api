@@ -19,8 +19,17 @@ def test_should_not_trigger_digest_at_other_times():
 
 def test_run_scheduler_tick_dispatches():
     at_9am = datetime(2026, 10, 15, 9, 0, 0)
-    with patch("app.scheduler.send_batch_digest") as mock_send:
-        mock_send.return_value = {"has_pending": True, "dispatched": True}
+    with patch("app.scheduler.generate_batch_digest") as mock_digest:
+        mock_digest.return_value = {"has_pending": True, "dispatched": True}
         result = run_scheduler_tick(now=at_9am, reset_date=True)
         assert result is not None
-        assert mock_send.called
+        assert mock_digest.called
+
+
+def test_run_scheduler_tick_suppresses_empty_queue():
+    at_9am = datetime(2026, 10, 15, 9, 0, 0)
+    with patch("app.scheduler.generate_batch_digest") as mock_digest:
+        mock_digest.return_value = {"has_pending": False, "dispatched": False}
+        result = run_scheduler_tick(now=at_9am, reset_date=True)
+        assert result is not None
+        assert result["has_pending"] is False

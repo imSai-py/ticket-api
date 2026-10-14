@@ -20,6 +20,7 @@ from app.schemas import SyncTicketRequest, TriageRequest, TriageResponse
 from app.tracking_sync import (
     SpreadsheetLockedError,
     get_pending_approvals,
+    sanitize_cell,
     sync_ticket_to_spreadsheet,
     update_approval_status,
 )
@@ -187,8 +188,8 @@ def triage(req: TriageRequest) -> TriageResponse:
     matched = retriever.retrieve(req.subject, req.text)
     res = classify_and_reply(req.subject, req.text, matched_articles=matched)
     if str(res.category) == "Billing":
-        clean_subj = " ".join(req.subject.replace("\r", " ").replace("\n", " ").split())
-        clean_text = " ".join(req.text.replace("\r", " ").replace("\n", " ").split())
+        clean_subj = sanitize_cell(req.subject)
+        clean_text = sanitize_cell(req.text)
 
         row = sync_ticket_to_spreadsheet(
             {

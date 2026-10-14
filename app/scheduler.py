@@ -5,7 +5,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from app.batch_digest import send_batch_digest
+from app.batch_digest import generate_batch_digest
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +33,14 @@ def run_scheduler_tick(
     if should_trigger_digest(current_time, _LAST_RUN_DATE):
         today_str = current_time.strftime("%Y-%m-%d")
         _LAST_RUN_DATE = today_str
+        digest = generate_batch_digest()
+        if not digest.get("has_pending"):
+            logger.debug(
+                "Suppressing scheduled 9:00 AM digest: zero pending billing approvals."
+            )
+            return digest
         logger.info("Executing scheduled 9:00 AM batch approval digest...")
-        return send_batch_digest()
+        return digest
     return None
 
 

@@ -256,7 +256,17 @@ def sync_ticket_to_spreadsheet(
         status_val = str(ticket.get("status", "Pending"))
         existing_notes = ""
 
-    notes_val = str(ticket.get("notes") or existing_notes or verification_note)
+    explicit_notes = str(ticket.get("notes") or "").strip()
+    notes_parts: list[str] = []
+    if explicit_notes:
+        notes_parts.append(explicit_notes)
+    elif existing_notes:
+        notes_parts.append(existing_notes)
+
+    if verification_note and verification_note not in notes_parts:
+        notes_parts.append(verification_note)
+
+    notes_val = "; ".join(notes_parts)
 
     # Determine reason: explicit reason or extracted operational reason
     provided_reason = ticket.get("reason", "")

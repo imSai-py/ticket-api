@@ -1,8 +1,4 @@
-ticket_id,customer_name,category,priority,amount,reason,agent,status,escalated,created_at,updated_at
-TCK-AUTO-E9D385,Incoming Customer,Billing,high,250,"Dispute on annual subscription renewal:  Hi, I was billed $250.00 twice on my credit
-      card for invoice #9401. Please issue a refund for the
-      duplicate charge.",AI Triage,Pending,FALSE,2026-10-14T11:11:54.224009+00:00,2026-10-14T11:11:54.224009+00:00
-TCK-AUTO-24AB8E,Acme Corp,Billing,high,250,Dispute on annual subscription renewal,AI Triage,Pending,FALSE,2026-10-14T11:22:46.771797+00:00,2026-10-14T11:22:46.771797+00:00
-TCK-1061,Acme Corp,Billing,high,250,Duplicate charge refund (invoice #9401),Mara,Pending,FALSE,2026-10-14T12:03:53.327571+00:00,2026-10-14T12:03:53.327571+00:00
-TCK-1062,Acme Corp,Billing,high,250.00,Duplicate charge refund (invoice #9401),Mara,Pending,False,2026-10-14 17:42:33,
-TCK-1063,Acme Corp,Billing,high,250.00,Duplicate charge refund (invoice #9401),peter,Pending,False,2026-10-14 17:44:36,
+ticket_id,customer_name,category,priority,amount,reason,agent,status,escalated,created_at,updated_at,notes
+TCK-1061,Acme Corp,Billing,high,250.00,Duplicate charge refund (invoice #9401),Mara,Pending,False,2026-10-14 12:03:53,,
+TCK-1062,Acme Corp,Billing,high,250.00,Duplicate charge refund (invoice #9401),Mara,Pending,False,2026-10-14 17:42:33,,
+TCK-1063,Acme Corp,Billing,high,250.00,Duplicate charge refund (invoice #9401),peter,Pending,False,2026-10-14 17:44:36,,

@@ -1,7 +1,7 @@
 import csv
 import io
 import os
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from app.tracking_sync import get_pending_approvals
@@ -18,7 +18,7 @@ def generate_batch_digest(
     )
     pending_tickets = get_pending_approvals(csv_path=csv_path)
     count = len(pending_tickets)
-    today_str = datetime.now(UTC).strftime("%Y-%m-%d")
+    today_str = datetime.now().strftime("%Y-%m-%d")
     sheet_link = (
         spreadsheet_url or os.getenv("SPREADSHEET_URL") or "data/ops_tracking_sheet.csv"
     )
@@ -74,6 +74,3 @@ def generate_batch_digest(
         "csv_payload": csv_buffer.getvalue(),
         "spreadsheet_link": sheet_link,
     }
-
-
-send_batch_digest = generate_batch_digest

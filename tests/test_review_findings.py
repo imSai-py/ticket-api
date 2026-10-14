@@ -39,6 +39,22 @@ def test_notes_column_in_fieldnames_and_verification_flag(temp_csv):
     assert updated.get("notes") == "Approved per policy"
 
 
+def test_verification_note_appends_to_existing_notes(temp_csv):
+    """Spec line 52: notes appends 'Needs amount verification'."""
+    ticket = {
+        "ticket_id": "TCK-2003",
+        "customer_name": "Test User",
+        "category": "Billing",
+        "priority": "normal",
+        "reason": "Customer inquiry without dollar figure",
+        "agent": "Mara",
+        "notes": "VIP customer",
+    }
+    result = sync_ticket_to_spreadsheet(ticket, csv_path=temp_csv)
+    assert "VIP customer" in result["notes"]
+    assert "Needs amount verification" in result["notes"]
+
+
 def test_one_click_approval_minimal_html_contract(temp_csv, monkeypatch):
     """Spec line 62: minimal HTML response."""
     monkeypatch.setenv("OPS_TRACKING_CSV_PATH", temp_csv)
