@@ -1,9 +1,9 @@
 ## Child Tickets (Execution Frontier)
 
-- [ ] #16 - feat: core billing sync and tracking storage slice (Blocked by: None)
-- [ ] #17 - feat: instant escalation alert notification slice (Blocked by: #16)
-- [ ] #18 - feat: consolidated batch approval digest slice (Blocked by: #16)
-- [ ] #19 - feat: one-click approval action and receipt slice (Blocked by: #18)
+- [x] #16 - feat: core billing sync and tracking storage slice (Blocked by: None)
+- [x] #17 - feat: instant escalation alert notification slice (Blocked by: #16)
+- [x] #18 - feat: consolidated batch approval digest slice (Blocked by: #16)
+- [x] #19 - feat: one-click approval action and receipt slice (Blocked by: #18)
 
 ---
 ## Problem Statement
