@@ -6,6 +6,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from app.schemas import OpsTicketRecord
+
 logger = logging.getLogger(__name__)
 
 FIELDNAMES = [
@@ -181,6 +183,14 @@ def get_next_ticket_id(csv_path: str | None = None) -> str:
     return f"TCK-{highest + 1}"
 
 
+def sanitize_cell(value: Any) -> str:
+    """Normalize whitespace and strip newlines to ensure single-line CSV rows."""
+    if value is None:
+        return ""
+    text = str(value).replace("\r", " ").replace("\n", " ").replace("\t", " ")
+    return " ".join(text.split())
+
+
 def extract_operational_reason(subject: str, text: str) -> str:
     """Extract a meaningful operational reason for approval rather than copying subject."""
     full = f"{subject} {text}".lower()
@@ -197,19 +207,11 @@ def extract_operational_reason(subject: str, text: str) -> str:
         if any(k in full for k in keywords):
             return f"{label}{inv_suffix}"
 
-    clean_subj = " ".join(subject.replace("\r", " ").replace("\n", " ").split())
+    clean_subj = sanitize_cell(subject)
     if clean_subj:
         return clean_subj
-    clean_text = " ".join(text.replace("\r", " ").replace("\n", " ").split())
+    clean_text = sanitize_cell(text)
     return clean_text[:80]
-
-
-def sanitize_cell(value: Any) -> str:
-    """Normalize whitespace and strip newlines to ensure single-line CSV rows."""
-    if value is None:
-        return ""
-    text = str(value).replace("\r", " ").replace("\n", " ").replace("\t", " ")
-    return " ".join(text.split())
 
 
 def sync_ticket_to_spreadsheet(
@@ -224,9 +226,9 @@ def sync_ticket_to_spreadsheet(
     if not ticket_id:
         ticket_id = get_next_ticket_id(csv_path=path)
 
-    # Determine amount & verification note
+    # Determine amount & verification note (checking subject, reason, and text)
     provided_amount = ticket.get("amount")
-    text_content = f"{ticket.get('reason', '')} {ticket.get('text', '')}".strip()
+    text_content = f"{ticket.get('subject', '')} {ticket.get('reason', '')} {ticket.get('text', '')}".strip()
 
     verification_note = ""
     if provided_amount is not None and float(provided_amount) > 0:
@@ -292,13 +294,16 @@ def sync_ticket_to_spreadsheet(
         "notes": sanitize_cell(notes_val),
     }
 
+    validated_record = OpsTicketRecord(**new_row)
+    validated_row = validated_record.model_dump()
+
     if existing_idx is not None:
-        rows[existing_idx] = new_row
+        rows[existing_idx] = validated_row
     else:
-        rows.append(new_row)
+        rows.append(validated_row)
 
     _write_all(path, rows)
-    return new_row
+    return validated_row
 
 
 def get_pending_approvals(csv_path: str | None = None) -> list[dict[str, Any]]:
