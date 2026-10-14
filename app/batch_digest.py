@@ -39,11 +39,17 @@ def generate_batch_digest(
 
     header_line = f"{'Ticket ID':<12} | {'Customer':<20} | {'Amount':<10} | {'Agent':<12} | {'Reason'}"
     sep_line = "-" * 85
+    base_url = (os.getenv("BASE_URL") or "http://localhost:8000").rstrip("/")
     data_lines = []
     for t in pending_tickets:
         amount_num = float(t.get("amount") or 0.0)
+        approve_url = (
+            f"{base_url}/ops/approvals/{t['ticket_id']}/action?status=Approved"
+        )
+        reject_url = f"{base_url}/ops/approvals/{t['ticket_id']}/action?status=Rejected"
         data_lines.append(
-            f"{t['ticket_id']:<12} | {t['customer_name']:<20} | ${amount_num:<9.2f} | {t.get('agent', 'System'):<12} | {t.get('reason', '')}"
+            f"{t['ticket_id']:<12} | {t['customer_name']:<20} | ${amount_num:<9.2f} | {t.get('agent', 'System'):<12} | {t.get('reason', '')}\n"
+            f"  -> Actions: [Approve: {approve_url}]  [Reject: {reject_url}]"
         )
 
     table_content = "\n".join([header_line, sep_line] + data_lines)

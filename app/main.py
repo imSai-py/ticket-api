@@ -5,7 +5,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -13,7 +13,11 @@ from app.batch_digest import generate_batch_digest
 from app.escalation import send_escalation_alert
 from app.retrieval import KBRetriever
 from app.schemas import TriageRequest, TriageResponse
-from app.tracking_sync import get_pending_approvals, sync_ticket_to_spreadsheet
+from app.tracking_sync import (
+    get_pending_approvals,
+    sync_ticket_to_spreadsheet,
+    update_approval_status,
+)
 from app.triage_ai import classify_and_reply
 from ticket_summary import compute_metrics, parse_iso_timestamp
 
@@ -136,6 +140,69 @@ def ops_get_pending():
 def ops_send_digest():
     digest = generate_batch_digest()
     return digest
+
+
+@app.get("/ops/approvals/{ticket_id}/action", response_class=HTMLResponse)
+def ops_approval_action(ticket_id: str, status: str = Query(...)):
+    if status not in ("Approved", "Rejected"):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid status. Status must be 'Approved' or 'Rejected'.",
+        )
+    try:
+        update_approval_status(
+            ticket_id, new_status=status, notes="One-click email action"
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=404, detail=f"Ticket not found: {ticket_id}"
+        ) from e
+
+    receipt_color = "#16a34a" if status == "Approved" else "#dc2626"
+    receipt_html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>Billing Approval Confirmation</title>
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 80vh;
+            margin: 0;
+            background-color: #f8fafc;
+            color: #0f172a;
+        }}
+        .card {{
+            background: white;
+            padding: 2.5rem 3.5rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            border: 1px solid #e2e8f0;
+            text-align: center;
+            max-width: 480px;
+        }}
+        h2 {{
+            color: {receipt_color};
+            margin-top: 0;
+            margin-bottom: 0.75rem;
+        }}
+        p {{
+            color: #475569;
+            font-size: 1rem;
+            line-height: 1.5;
+        }}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>✓ Ticket {ticket_id} marked {status}</h2>
+        <p>Your decision has been recorded in the tracking sheet.<br><strong>You may safely close this tab.</strong></p>
+    </div>
+</body>
+</html>"""
+    return HTMLResponse(content=receipt_html, status_code=200)
 
 
 @app.post("/triage", response_model=TriageResponse)
