@@ -1,17 +1,17 @@
+import logging
 import os
 from typing import Any
+
+from app.tracking_sync import is_ticket_urgent
+
+logger = logging.getLogger(__name__)
 
 
 def send_escalation_alert(
     ticket: dict[str, Any], recipient_override: str | None = None
 ) -> dict[str, Any]:
     """Dispatch an instant alert for urgent escalated tickets directly to the manager inbox."""
-    is_urgent = (
-        ticket.get("priority") == "urgent"
-        or str(ticket.get("escalated", "")).lower() == "true"
-        or ticket.get("escalated") is True
-    )
-    if not is_urgent:
+    if not is_ticket_urgent(ticket):
         return {"dispatched": False, "reason": "Not an urgent ticket"}
 
     recipient = (
@@ -38,6 +38,11 @@ def send_escalation_alert(
         "ACTION REQUIRED: Immediate management review and approval required.\n"
     )
 
+    logger.warning(
+        "Dispatched urgent escalation alert for ticket %s to %s",
+        ticket_id,
+        recipient,
+    )
     return {
         "dispatched": True,
         "recipient": recipient,

@@ -63,3 +63,19 @@ def test_triage_auto_syncs_billing_ticket(monkeypatch):
     assert len(pending) == 1
     assert pending[0]["category"] == "Billing"
     assert float(pending[0]["amount"]) == 45.00
+
+
+def test_sync_ticket_with_explicit_escalated_flag():
+    payload = {
+        "ticket_id": "TCK-SYNC-FLAG",
+        "customer_name": "VIP Client",
+        "category": "Billing",
+        "priority": "normal",
+        "amount": 25.0,
+        "escalated": True,
+    }
+    res = client.post("/ops/sync-ticket", json=payload)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ticket"]["escalated"] == "True"
+    assert data["escalation_alert"]["dispatched"] is True

@@ -108,3 +108,29 @@ def test_update_approval_status(temp_csv):
 
     pending = get_pending_approvals(csv_path=temp_csv)
     assert len(pending) == 0
+
+
+def test_sync_ticket_preserves_existing_approval_status(temp_csv):
+    ticket = {
+        "ticket_id": "TCK-STATUS-01",
+        "customer_name": "Test Customer",
+        "category": "Billing",
+        "priority": "normal",
+        "amount": 100.0,
+        "reason": "Initial query",
+    }
+    sync_ticket_to_spreadsheet(ticket, csv_path=temp_csv)
+    update_approval_status(
+        "TCK-STATUS-01", "Approved", notes="Approved by manager", csv_path=temp_csv
+    )
+
+    # Re-sync without explicit status in payload
+    update_payload = {
+        "ticket_id": "TCK-STATUS-01",
+        "customer_name": "Test Customer Updated",
+        "category": "Billing",
+        "priority": "normal",
+        "reason": "Customer updated details",
+    }
+    result = sync_ticket_to_spreadsheet(update_payload, csv_path=temp_csv)
+    assert result["status"] == "Approved"

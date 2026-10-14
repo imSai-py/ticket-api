@@ -73,6 +73,15 @@ def _write_all(csv_path: str, rows: list[dict[str, Any]]) -> None:
         writer.writerows(rows)
 
 
+def is_ticket_urgent(ticket: dict[str, Any]) -> bool:
+    """Determine whether a ticket is urgent or explicitly escalated."""
+    return (
+        ticket.get("priority") == "urgent"
+        or str(ticket.get("escalated", "")).lower() == "true"
+        or ticket.get("escalated") is True
+    )
+
+
 def sync_ticket_to_spreadsheet(
     ticket: dict[str, Any], csv_path: str | None = None
 ) -> dict[str, Any]:
@@ -98,11 +107,13 @@ def sync_ticket_to_spreadsheet(
         (i for i, r in enumerate(rows) if r["ticket_id"] == ticket_id), None
     )
 
-    is_escalated = (
-        ticket.get("priority") == "urgent"
-        or str(ticket.get("escalated", "")).lower() == "true"
-        or ticket.get("escalated") is True
-    )
+    is_urgent = is_ticket_urgent(ticket)
+
+    # If ticket already exists and status was not explicitly passed in payload, retain existing status
+    if existing_idx is not None and "status" not in ticket:
+        status_val = rows[existing_idx].get("status", "Pending")
+    else:
+        status_val = str(ticket.get("status", "Pending"))
 
     new_row: dict[str, Any] = {
         "ticket_id": ticket_id,
@@ -112,8 +123,8 @@ def sync_ticket_to_spreadsheet(
         "amount": f"{amount_val:.2f}",
         "reason": str(ticket.get("reason", "")),
         "agent": str(ticket.get("agent", "System")),
-        "status": str(ticket.get("status", "Pending")),
-        "escalated": "True" if is_escalated else "False",
+        "status": status_val,
+        "escalated": "True" if is_urgent else "False",
         "created_at": now,
         "updated_at": now,
         "notes": notes,

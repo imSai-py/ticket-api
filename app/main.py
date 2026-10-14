@@ -1,6 +1,8 @@
 import csv
+import hashlib
 import os
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
@@ -121,29 +123,30 @@ class SyncTicketRequest(BaseModel):
     reason: str = ""
     agent: str = "System"
     notes: str = ""
+    escalated: bool = False
 
 
 @app.post("/ops/sync-ticket")
-def ops_sync_ticket(req: SyncTicketRequest):
+def ops_sync_ticket(req: SyncTicketRequest) -> dict[str, Any]:
     row = sync_ticket_to_spreadsheet(req.model_dump())
     alert = send_escalation_alert(row)
     return {"ticket": row, "escalation_alert": alert}
 
 
 @app.get("/ops/approvals/pending")
-def ops_get_pending():
+def ops_get_pending() -> dict[str, Any]:
     pending = get_pending_approvals()
     return {"pending_count": len(pending), "pending_approvals": pending}
 
 
 @app.post("/ops/approvals/send-digest")
-def ops_send_digest():
+def ops_send_digest() -> dict[str, Any]:
     digest = generate_batch_digest()
     return digest
 
 
 @app.get("/ops/approvals/{ticket_id}/action", response_class=HTMLResponse)
-def ops_approval_action(ticket_id: str, status: str = Query(...)):
+def ops_approval_action(ticket_id: str, status: str = Query(...)) -> HTMLResponse:
     if status not in ("Approved", "Rejected"):
         raise HTTPException(
             status_code=400,
@@ -206,14 +209,15 @@ def ops_approval_action(ticket_id: str, status: str = Query(...)):
 
 
 @app.post("/triage", response_model=TriageResponse)
-def triage(req: TriageRequest):
+def triage(req: TriageRequest) -> TriageResponse:
     matched = retriever.retrieve(req.subject, req.text)
     res = classify_and_reply(req.subject, req.text, matched_articles=matched)
     if str(res.category) == "Billing":
-        text_hash = abs(hash(f"{req.subject} {req.text}")) % 100000
+        token = f"{req.subject} {req.text}".encode()
+        hash_suffix = hashlib.sha256(token).hexdigest()[:6].upper()
         row = sync_ticket_to_spreadsheet(
             {
-                "ticket_id": f"TCK-AUTO-{text_hash:05d}",
+                "ticket_id": f"TCK-AUTO-{hash_suffix}",
                 "customer_name": "Incoming Customer",
                 "category": "Billing",
                 "priority": str(res.priority),
