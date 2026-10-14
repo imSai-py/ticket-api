@@ -9,6 +9,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from app.escalation import send_escalation_alert
 from app.retrieval import KBRetriever
 from app.schemas import TriageRequest, TriageResponse
 from app.tracking_sync import get_pending_approvals, sync_ticket_to_spreadsheet
@@ -120,7 +121,8 @@ class SyncTicketRequest(BaseModel):
 @app.post("/ops/sync-ticket")
 def ops_sync_ticket(req: SyncTicketRequest):
     row = sync_ticket_to_spreadsheet(req.model_dump())
-    return {"ticket": row}
+    alert = send_escalation_alert(row)
+    return {"ticket": row, "escalation_alert": alert}
 
 
 @app.get("/ops/approvals/pending")
@@ -135,7 +137,7 @@ def triage(req: TriageRequest):
     res = classify_and_reply(req.subject, req.text, matched_articles=matched)
     if str(res.category) == "Billing":
         text_hash = abs(hash(f"{req.subject} {req.text}")) % 100000
-        sync_ticket_to_spreadsheet(
+        row = sync_ticket_to_spreadsheet(
             {
                 "ticket_id": f"TCK-AUTO-{text_hash:05d}",
                 "customer_name": "Incoming Customer",
@@ -145,6 +147,8 @@ def triage(req: TriageRequest):
                 "agent": "AI Triage",
             }
         )
+        if str(res.priority) == "urgent":
+            send_escalation_alert(row)
     return res
 
 

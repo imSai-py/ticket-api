@@ -1,0 +1,126 @@
+from fastapi.testclient import TestClient
+
+from app.escalation import send_escalation_alert
+from app.main import app
+from app.schemas import CategoryEnum, PriorityEnum, TriageResponse
+
+client = TestClient(app)
+
+
+def test_escalation_alert_urgent_ticket(monkeypatch):
+    monkeypatch.setenv("ESCALATION_MANAGER_EMAIL", "lead-ops@company.com")
+    ticket = {
+        "ticket_id": "TCK-9901",
+        "customer_name": "VIP Enterprise",
+        "category": "Billing",
+        "priority": "urgent",
+        "amount": 2500.0,
+        "reason": "Complete service lockout after double deduction",
+    }
+    alert = send_escalation_alert(ticket)
+    assert alert["dispatched"] is True
+    assert alert["recipient"] == "lead-ops@company.com"
+    assert "URGENT ESCALATION" in alert["subject"]
+    assert "TCK-9901" in alert["subject"]
+    assert "VIP Enterprise" in alert["body"]
+    assert "$2500.00" in alert["body"]
+
+
+def test_escalation_alert_explicit_escalated_flag():
+    ticket = {
+        "ticket_id": "TCK-9902",
+        "customer_name": "Acme Corp",
+        "category": "Billing",
+        "priority": "high",
+        "escalated": True,
+        "amount": 150.0,
+        "reason": "Customer threatened to churn if not resolved immediately",
+    }
+    alert = send_escalation_alert(ticket)
+    assert alert["dispatched"] is True
+    assert "TCK-9902" in alert["subject"]
+
+
+def test_escalation_alert_normal_priority_suppressed():
+    ticket = {
+        "ticket_id": "TCK-9903",
+        "customer_name": "John Doe",
+        "category": "Billing",
+        "priority": "normal",
+        "amount": 19.99,
+        "reason": "Question about monthly invoice",
+    }
+    alert = send_escalation_alert(ticket)
+    assert alert["dispatched"] is False
+    assert alert["reason"] == "Not an urgent ticket"
+
+
+def test_escalation_alert_fallback_recipient(monkeypatch):
+    monkeypatch.delenv("ESCALATION_MANAGER_EMAIL", raising=False)
+    ticket = {
+        "ticket_id": "TCK-9904",
+        "customer_name": "Alice Smith",
+        "category": "Billing",
+        "priority": "urgent",
+        "amount": 300.0,
+        "reason": "Urgent refund required",
+    }
+    alert = send_escalation_alert(ticket)
+    assert alert["dispatched"] is True
+    assert alert["recipient"] == "manager@company.com"
+
+
+def test_post_ops_sync_ticket_returns_escalation_alert():
+    payload_urgent = {
+        "ticket_id": "TCK-SYNC-URGENT",
+        "customer_name": "Emergency Client",
+        "category": "Billing",
+        "priority": "urgent",
+        "amount": 1000.0,
+        "reason": "System critical invoice issue",
+    }
+    res_urgent = client.post("/ops/sync-ticket", json=payload_urgent)
+    assert res_urgent.status_code == 200
+    data_urgent = res_urgent.json()
+    assert "escalation_alert" in data_urgent
+    assert data_urgent["escalation_alert"]["dispatched"] is True
+
+    payload_normal = {
+        "ticket_id": "TCK-SYNC-NORMAL",
+        "customer_name": "Regular Client",
+        "category": "Billing",
+        "priority": "normal",
+        "amount": 50.0,
+        "reason": "Normal billing question",
+    }
+    res_normal = client.post("/ops/sync-ticket", json=payload_normal)
+    assert res_normal.status_code == 200
+    data_normal = res_normal.json()
+    assert "escalation_alert" in data_normal
+    assert data_normal["escalation_alert"]["dispatched"] is False
+
+
+def test_triage_auto_sync_triggers_escalation_for_urgent(monkeypatch):
+    monkeypatch.setattr(
+        "app.main.classify_and_reply",
+        lambda subject, text, matched_articles=None: TriageResponse(
+            category=CategoryEnum.BILLING,
+            priority=PriorityEnum.URGENT,
+            suggested_reply="Immediate assistance requested for critical billing failure.",
+            article_ids=["KB-001"],
+        ),
+    )
+
+    triage_req = {
+        "subject": "EMERGENCY: Entire office account locked out due to billing",
+        "text": "Our payment method was rejected and all 50 staff are locked out.",
+    }
+    response = client.post("/triage", json=triage_req)
+    assert response.status_code == 200
+
+    pending_res = client.get("/ops/approvals/pending")
+    assert pending_res.status_code == 200
+    pending = pending_res.json()["pending_approvals"]
+    urgent_ticket = next((t for t in pending if t["priority"] == "urgent"), None)
+    assert urgent_ticket is not None
+    assert urgent_ticket["escalated"] == "True"
