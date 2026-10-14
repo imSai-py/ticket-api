@@ -7,9 +7,11 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from app.retrieval import KBRetriever
 from app.schemas import TriageRequest, TriageResponse
+from app.tracking_sync import get_pending_approvals, sync_ticket_to_spreadsheet
 from app.triage_ai import classify_and_reply
 from ticket_summary import compute_metrics, parse_iso_timestamp
 
@@ -104,10 +106,46 @@ def summary():
     }
 
 
+class SyncTicketRequest(BaseModel):
+    ticket_id: str
+    customer_name: str
+    category: str = "Billing"
+    priority: str = "normal"
+    amount: float | None = None
+    reason: str = ""
+    agent: str = "System"
+    notes: str = ""
+
+
+@app.post("/ops/sync-ticket")
+def ops_sync_ticket(req: SyncTicketRequest):
+    row = sync_ticket_to_spreadsheet(req.model_dump())
+    return {"ticket": row}
+
+
+@app.get("/ops/approvals/pending")
+def ops_get_pending():
+    pending = get_pending_approvals()
+    return {"pending_count": len(pending), "pending_approvals": pending}
+
+
 @app.post("/triage", response_model=TriageResponse)
 def triage(req: TriageRequest):
     matched = retriever.retrieve(req.subject, req.text)
-    return classify_and_reply(req.subject, req.text, matched_articles=matched)
+    res = classify_and_reply(req.subject, req.text, matched_articles=matched)
+    if str(res.category) == "Billing":
+        text_hash = abs(hash(f"{req.subject} {req.text}")) % 100000
+        sync_ticket_to_spreadsheet(
+            {
+                "ticket_id": f"TCK-AUTO-{text_hash:05d}",
+                "customer_name": "Incoming Customer",
+                "category": "Billing",
+                "priority": str(res.priority),
+                "reason": f"{req.subject}: {req.text}".strip(": "),
+                "agent": "AI Triage",
+            }
+        )
+    return res
 
 
 @app.get("/triage-ui")
