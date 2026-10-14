@@ -33,6 +33,10 @@
 - **Code Integrity**: Preserve existing docstrings, type annotations, and comments unless explicitly instructed otherwise.
 
 ## 4. Pull Request (PR) & Ticket Lifecycle
+- **PR Timing & Batching Policy**:
+  - Do NOT open a Pull Request immediately after implementing each individual ticket.
+  - Slices/tickets are implemented, verified, and committed sequentially on the integration/feature branch.
+  - Open a Pull Request only when all tickets in the specification are fully implemented and verified, or when explicitly requested by the user.
 - **PR Structure Template**:
   Every pull request body must strictly contain only the seven approved template sections below. Do not include third-party bot annotations or external summary blocks:
   ```markdown
@@ -66,7 +70,12 @@
   **Door:** <one-way or two-way with rollback rationale>
   **Blast Radius:** <isolated / narrow / medium / broad with scope assessment>
   ```
-- **PR Completion Gate**: Upon opening or completing a PR:
+- **Ticket Completion Gate**: Upon completing each individual ticket:
+  1. Verify with tests and commit to the branch.
+  2. Close or comment on the associated issue.
+  3. Show verification evidence.
+  4. Ask: *"Would you like to proceed with the next ticket?"*
+- **Final PR Gate**: Upon completing all tickets or when explicitly instructed to open a PR:
   1. Provide the clickable link to the PR.
   2. Ask: *"Would you like to proceed with the next ticket?"*
 
