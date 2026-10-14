@@ -20,9 +20,60 @@ FIELDNAMES = [
     "escalated",
     "created_at",
     "updated_at",
+    "notes",
 ]
 
 DEFAULT_CSV_PATH = os.path.join("data", "ops_tracking_sheet.csv")
+
+_REASON_KEYWORD_MAP: tuple[tuple[tuple[str, ...], str], ...] = (
+    (
+        (
+            "billed twice",
+            "charged twice",
+            "duplicate charge",
+            "double billed",
+            "charged two times",
+            "duplicate",
+        ),
+        "Duplicate charge refund",
+    ),
+    (
+        (
+            "overcharged",
+            "incorrect charge",
+            "wrong amount",
+            "charged more",
+        ),
+        "Overcharge dispute",
+    ),
+    (
+        (
+            "cancel",
+            "cancellation",
+            "subscription renewal",
+            "annual renewal",
+            "annual subscription",
+        ),
+        "Subscription dispute",
+    ),
+    (
+        (
+            "unauthorized",
+            "fraud",
+            "stolen card",
+            "didn't authorize",
+        ),
+        "Unauthorized charge dispute",
+    ),
+    (
+        (
+            "refund",
+            "reimburse",
+            "chargeback",
+        ),
+        "Customer refund request",
+    ),
+)
 
 
 def extract_amount(text: str) -> tuple[float, str]:
@@ -100,37 +151,33 @@ def is_ticket_urgent(ticket: dict[str, Any]) -> bool:
     )
 
 
+def _find_max_ticket_number(path: Path | str) -> int:
+    """Extract highest numerical suffix from TCK-<number> in a given CSV file."""
+    highest = 1019
+    p = Path(path)
+    if not p.exists():
+        return highest
+    try:
+        with open(p, mode="r", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                tid = row.get("ticket_id", "")
+                m = re.search(r"TCK-(\d+)", tid, re.IGNORECASE)
+                if m:
+                    highest = max(highest, int(m.group(1)))
+    except (OSError, csv.Error, ValueError) as err:
+        logger.debug("Could not inspect %s for max ID: %s", path, err)
+    return highest
+
+
 def get_next_ticket_id(csv_path: str | None = None) -> str:
     """Generate the next sequential ticket ID (e.g. TCK-1020)."""
-    highest = 1019  # baseline from sample data
-
-    # Check sample tickets file if present
     base_dir = Path(__file__).resolve().parent.parent
     sample_path = base_dir / "data" / "tickets_sample.csv"
-    if sample_path.exists():
-        try:
-            with open(sample_path, mode="r", encoding="utf-8") as f:
-                for row in csv.DictReader(f):
-                    tid = row.get("ticket_id", "")
-                    m = re.search(r"TCK-(\d+)", tid, re.IGNORECASE)
-                    if m:
-                        highest = max(highest, int(m.group(1)))
-        except (OSError, csv.Error, ValueError) as err:
-            logger.debug("Could not inspect sample tickets for max ID: %s", err)
+    tracking_path = csv_path or os.getenv("OPS_TRACKING_CSV_PATH", DEFAULT_CSV_PATH)
 
-    # Check ops tracking sheet
-    path = csv_path or os.getenv("OPS_TRACKING_CSV_PATH", DEFAULT_CSV_PATH)
-    if os.path.exists(path):
-        try:
-            with open(path, mode="r", encoding="utf-8") as f:
-                for row in csv.DictReader(f):
-                    tid = row.get("ticket_id", "")
-                    m = re.search(r"TCK-(\d+)", tid, re.IGNORECASE)
-                    if m:
-                        highest = max(highest, int(m.group(1)))
-        except (OSError, csv.Error, ValueError) as err:
-            logger.debug("Could not inspect tracking sheet for max ID: %s", err)
-
+    max_sample = _find_max_ticket_number(sample_path)
+    max_tracking = _find_max_ticket_number(tracking_path)
+    highest = max(max_sample, max_tracking)
     return f"TCK-{highest + 1}"
 
 
@@ -146,37 +193,9 @@ def extract_operational_reason(subject: str, text: str) -> str:
     )
     inv_suffix = f" ({inv_match.group(0).strip()})" if inv_match else ""
 
-    if any(
-        k in full
-        for k in [
-            "billed twice",
-            "charged twice",
-            "duplicate charge",
-            "double billed",
-            "charged two times",
-        ]
-    ):
-        return f"Duplicate charge refund{inv_suffix}"
-    if any(
-        k in full
-        for k in [
-            "overcharged",
-            "incorrect charge",
-            "wrong amount",
-            "charged more",
-        ]
-    ):
-        return f"Overcharge dispute{inv_suffix}"
-    if any(k in full for k in ["cancel", "cancellation", "subscription renewal"]):
-        return f"Subscription dispute{inv_suffix}"
-    if "refund" in full:
-        return f"Refund request{inv_suffix}"
-    if any(k in full for k in ["locked out", "lockout", "password", "login"]):
-        return "Account access recovery"
-    if any(k in full for k in ["freeze", "freezing", "crash", "bug", "error"]):
-        return "Application technical issue"
-    if any(k in full for k in ["tracking", "shipment", "delivery"]):
-        return f"Order delivery status{inv_suffix}"
+    for keywords, label in _REASON_KEYWORD_MAP:
+        if any(k in full for k in keywords):
+            return f"{label}{inv_suffix}"
 
     clean_subj = " ".join(subject.replace("\r", " ").replace("\n", " ").split())
     if clean_subj:
@@ -200,18 +219,20 @@ def sync_ticket_to_spreadsheet(
     path = csv_path or os.getenv("OPS_TRACKING_CSV_PATH", DEFAULT_CSV_PATH)
     rows = _read_all(path)
     now_local = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
     ticket_id = str(ticket.get("ticket_id", "")).strip()
     if not ticket_id:
         ticket_id = get_next_ticket_id(csv_path=path)
 
-    # Determine amount
+    # Determine amount & verification note
     provided_amount = ticket.get("amount")
     text_content = f"{ticket.get('reason', '')} {ticket.get('text', '')}".strip()
 
+    verification_note = ""
     if provided_amount is not None and float(provided_amount) > 0:
         amount_val = float(provided_amount)
     else:
-        amount_val, _ = extract_amount(text_content)
+        amount_val, verification_note = extract_amount(text_content)
 
     existing_idx = next(
         (i for i, r in enumerate(rows) if r["ticket_id"] == ticket_id), None
@@ -228,10 +249,23 @@ def sync_ticket_to_spreadsheet(
             if "status" not in ticket
             else str(ticket.get("status", "Pending"))
         )
+        existing_notes = rows[existing_idx].get("notes", "")
     else:
         created_time = now_local
         updated_time = ""
         status_val = str(ticket.get("status", "Pending"))
+        existing_notes = ""
+
+    notes_val = str(ticket.get("notes") or existing_notes or verification_note)
+
+    # Determine reason: explicit reason or extracted operational reason
+    provided_reason = ticket.get("reason", "")
+    if provided_reason:
+        reason_val = provided_reason
+    else:
+        reason_val = extract_operational_reason(
+            ticket.get("subject", ""), ticket.get("text", "")
+        )
 
     new_row: dict[str, Any] = {
         "ticket_id": sanitize_cell(ticket_id),
@@ -239,12 +273,13 @@ def sync_ticket_to_spreadsheet(
         "category": sanitize_cell(ticket.get("category", "Billing")),
         "priority": sanitize_cell(ticket.get("priority", "normal")),
         "amount": f"{amount_val:.2f}",
-        "reason": sanitize_cell(ticket.get("reason", "")),
+        "reason": sanitize_cell(reason_val),
         "agent": sanitize_cell(ticket.get("agent") or "Mara"),
         "status": sanitize_cell(status_val),
         "escalated": "True" if is_urgent else "False",
         "created_at": sanitize_cell(created_time),
         "updated_at": sanitize_cell(updated_time),
+        "notes": sanitize_cell(notes_val),
     }
 
     if existing_idx is not None:
@@ -278,5 +313,7 @@ def update_approval_status(
 
     target["status"] = new_status
     target["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if notes:
+        target["notes"] = sanitize_cell(notes)
     _write_all(path, rows)
     return target

@@ -57,7 +57,7 @@ def test_one_click_approve_action(tmp_path, monkeypatch):
     assert res.status_code == 200
     assert "text/html" in res.headers["content-type"]
     assert "Ticket TCK-ACT-101 marked Approved" in res.text
-    assert "You may safely close this tab" in res.text
+    assert "You may close this tab" in res.text
 
     # Verify status in tracking sheet
     pending = get_pending_approvals(csv_path=test_csv)

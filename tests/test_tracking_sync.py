@@ -42,7 +42,8 @@ def test_sync_ticket_creates_and_queries_pending(temp_csv):
     assert result["ticket_id"] == "TCK-1001"
     assert result["status"] == "Pending"
     assert float(result["amount"]) == 75.00
-    assert "notes" not in result
+    assert "notes" in result
+    assert result["notes"] == ""
 
     pending = get_pending_approvals(csv_path=temp_csv)
     assert len(pending) == 1
@@ -60,7 +61,7 @@ def test_sync_ticket_missing_amount_defaults_to_zero(temp_csv):
     }
     result = sync_ticket_to_spreadsheet(ticket, csv_path=temp_csv)
     assert float(result["amount"]) == 0.00
-    assert "notes" not in result
+    assert result["notes"] == "Needs amount verification"
 
 
 def test_sync_ticket_updates_existing_record(temp_csv):
@@ -151,7 +152,23 @@ def test_sync_ticket_sanitizes_newlines_in_cells(temp_csv):
     # Exactly header + 1 row
     assert len(lines) == 2
     header = lines[0].split(",")
-    assert "notes" not in header
+    assert "notes" in header
+
+
+def test_update_approval_status_persists_notes(temp_csv):
+    ticket = {
+        "ticket_id": "TCK-NOTE-01",
+        "customer_name": "Diana",
+        "category": "Billing",
+        "priority": "normal",
+        "amount": 50.0,
+        "reason": "Adjustment",
+    }
+    sync_ticket_to_spreadsheet(ticket, csv_path=temp_csv)
+    updated = update_approval_status(
+        "TCK-NOTE-01", "Approved", notes="Approved by manager", csv_path=temp_csv
+    )
+    assert updated["notes"] == "Approved by manager"
 
 
 def test_get_next_ticket_id_sequential(temp_csv):

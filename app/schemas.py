@@ -61,3 +61,36 @@ class TriageResponse(BaseModel):
     )
 
     model_config = ConfigDict(use_enum_values=True)
+
+
+class OpsTicketRecord(BaseModel):
+    """Typed domain model for operational tracking spreadsheet row."""
+
+    ticket_id: str = Field(description="Unique ticket identifier")
+    customer_name: str = Field(default="Customer", description="Customer full name")
+    category: str = Field(default="Billing", description="Ticket category")
+    priority: str = Field(default="normal", description="Ticket urgency priority")
+    amount: str = Field(default="0.00", description="Formatted dollar amount")
+    reason: str = Field(default="", description="Operational justification")
+    agent: str = Field(default="Mara", description="Handling agent name")
+    status: str = Field(default="Pending", description="Approval lifecycle state")
+    escalated: str = Field(default="False", description="Urgent escalation flag")
+    created_at: str = Field(default="", description="Creation timestamp")
+    updated_at: str = Field(default="", description="Update timestamp")
+    notes: str = Field(default="", description="Verification and audit notes")
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class SyncTicketRequest(BaseModel):
+    """Request model for syncing ticket directly to tracking spreadsheet."""
+
+    ticket_id: str = Field(default="", description="Optional ticket ID")
+    customer_name: str = Field(default="Customer", description="Customer full name")
+    category: str = Field(default="Billing", description="Ticket category")
+    priority: str = Field(default="normal", description="Ticket priority")
+    amount: float | None = Field(default=None, description="Monetary amount if known")
+    reason: str = Field(default="", description="Ticket reason")
+    agent: str = Field(default="Mara", description="Support agent handling ticket")
+    escalated: bool = Field(default=False, description="Manual escalation flag")
+    notes: str = Field(default="", description="Optional initial notes")

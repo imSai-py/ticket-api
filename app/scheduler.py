@@ -1,0 +1,51 @@
+"""Background scheduler service for daily 9:00 AM batch approval digest."""
+
+import asyncio
+import logging
+from datetime import datetime
+from typing import Any
+
+from app.batch_digest import send_batch_digest
+
+logger = logging.getLogger(__name__)
+
+_LAST_RUN_DATE: str | None = None
+
+
+def should_trigger_digest(now: datetime, last_run_date: str | None) -> bool:
+    """Check if current time is within the 9:00 AM window and has not run today."""
+    today_str = now.strftime("%Y-%m-%d")
+    if last_run_date == today_str:
+        return False
+    # Check if hour is 9 and within the first minute
+    return now.hour == 9 and now.minute == 0
+
+
+def run_scheduler_tick(
+    now: datetime | None = None, reset_date: bool = False
+) -> dict[str, Any] | None:
+    """Execute a single check of the scheduler, triggering the digest if due."""
+    global _LAST_RUN_DATE
+    if reset_date:
+        _LAST_RUN_DATE = None
+
+    current_time = now or datetime.now()
+    if should_trigger_digest(current_time, _LAST_RUN_DATE):
+        today_str = current_time.strftime("%Y-%m-%d")
+        _LAST_RUN_DATE = today_str
+        logger.info("Executing scheduled 9:00 AM batch approval digest...")
+        return send_batch_digest()
+    return None
+
+
+async def start_daily_digest_scheduler(
+    poll_interval_seconds: int = 30,
+) -> None:
+    """Async background task that runs while the server is active."""
+    logger.info("Starting daily 9:00 AM approval digest background scheduler.")
+    while True:
+        try:
+            run_scheduler_tick()
+        except (OSError, RuntimeError, ValueError) as e:
+            logger.error("Error during scheduled digest execution: %s", e)
+        await asyncio.sleep(poll_interval_seconds)

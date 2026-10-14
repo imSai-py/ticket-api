@@ -1,5 +1,8 @@
+import asyncio
 import csv
+import logging
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -8,22 +11,22 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
 
 from app.batch_digest import generate_batch_digest
 from app.escalation import send_escalation_alert
 from app.retrieval import KBRetriever
-from app.schemas import TriageRequest, TriageResponse
+from app.scheduler import start_daily_digest_scheduler
+from app.schemas import SyncTicketRequest, TriageRequest, TriageResponse
 from app.tracking_sync import (
     SpreadsheetLockedError,
-    extract_operational_reason,
-    get_next_ticket_id,
     get_pending_approvals,
     sync_ticket_to_spreadsheet,
     update_approval_status,
 )
 from app.triage_ai import classify_and_reply
 from ticket_summary import compute_metrics, parse_iso_timestamp
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -63,7 +66,22 @@ ALLOWED_ORIGINS = (
     else LOCAL_ORIGINS
 )
 
-app = FastAPI(title="ticket-api")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application startup and shutdown lifecycle tasks."""
+    scheduler_task = asyncio.create_task(start_daily_digest_scheduler())
+    try:
+        yield
+    finally:
+        scheduler_task.cancel()
+        try:
+            await scheduler_task
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(title="ticket-api", lifespan=lifespan)
 
 
 @app.exception_handler(SpreadsheetLockedError)
@@ -127,17 +145,6 @@ def summary():
     }
 
 
-class SyncTicketRequest(BaseModel):
-    ticket_id: str
-    customer_name: str
-    category: str = "Billing"
-    priority: str = "normal"
-    amount: float | None = None
-    reason: str = ""
-    agent: str = "Mara"
-    escalated: bool = False
-
-
 @app.post("/ops/sync-ticket")
 def ops_sync_ticket(req: SyncTicketRequest) -> dict[str, Any]:
     row = sync_ticket_to_spreadsheet(req.model_dump())
@@ -171,50 +178,7 @@ def ops_approval_action(ticket_id: str, status: str = Query(...)) -> HTMLRespons
             status_code=404, detail=f"Ticket not found: {ticket_id}"
         ) from e
 
-    receipt_color = "#16a34a" if status == "Approved" else "#dc2626"
-    receipt_html = f"""<!DOCTYPE html>
-<html>
-<head>
-    <title>Billing Approval Confirmation</title>
-    <style>
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 80vh;
-            margin: 0;
-            background-color: #f8fafc;
-            color: #0f172a;
-        }}
-        .card {{
-            background: white;
-            padding: 2.5rem 3.5rem;
-            border-radius: 12px;
-            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
-            border: 1px solid #e2e8f0;
-            text-align: center;
-            max-width: 480px;
-        }}
-        h2 {{
-            color: {receipt_color};
-            margin-top: 0;
-            margin-bottom: 0.75rem;
-        }}
-        p {{
-            color: #475569;
-            font-size: 1rem;
-            line-height: 1.5;
-        }}
-    </style>
-</head>
-<body>
-    <div class="card">
-        <h2>✓ Ticket {ticket_id} marked {status}</h2>
-        <p>Your decision has been recorded in the tracking sheet.<br><strong>You may safely close this tab.</strong></p>
-    </div>
-</body>
-</html>"""
+    receipt_html = f"<html><body><h3>✓ Ticket {ticket_id} marked {status}. You may close this tab.</h3></body></html>"
     return HTMLResponse(content=receipt_html, status_code=200)
 
 
@@ -226,37 +190,16 @@ def triage(req: TriageRequest) -> TriageResponse:
         clean_subj = " ".join(req.subject.replace("\r", " ").replace("\n", " ").split())
         clean_text = " ".join(req.text.replace("\r", " ").replace("\n", " ").split())
 
-        # Determine ticket ID: use provided ticket_id or next sequential TCK-XXXX
-        ticket_id = req.ticket_id.strip() if getattr(req, "ticket_id", "") else ""
-        if not ticket_id:
-            ticket_id = get_next_ticket_id()
-
-        # Determine customer name: from request or default to Customer
-        customer = (
-            req.customer_name.strip()
-            if getattr(req, "customer_name", "")
-            else "Customer"
-        )
-
-        # Determine support agent: from request or default to Mara
-        agent = req.agent.strip() if getattr(req, "agent", "") else "Mara"
-
-        # Determine operational reason: from request or extracted from text
-        provided_reason = req.reason.strip() if getattr(req, "reason", "") else ""
-        if provided_reason:
-            reason = provided_reason
-        else:
-            reason = extract_operational_reason(clean_subj, clean_text)
-
         row = sync_ticket_to_spreadsheet(
             {
-                "ticket_id": ticket_id,
-                "customer_name": customer,
+                "ticket_id": req.ticket_id,
+                "customer_name": req.customer_name,
                 "category": "Billing",
                 "priority": str(res.priority),
-                "reason": reason,
+                "reason": req.reason,
+                "subject": clean_subj,
                 "text": clean_text,
-                "agent": agent,
+                "agent": req.agent,
             }
         )
         if str(res.priority) == "urgent":

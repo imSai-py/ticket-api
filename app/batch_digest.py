@@ -74,3 +74,6 @@ def generate_batch_digest(
         "csv_payload": csv_buffer.getvalue(),
         "spreadsheet_link": sheet_link,
     }
+
+
+send_batch_digest = generate_batch_digest
