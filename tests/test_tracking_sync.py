@@ -2,6 +2,8 @@ import pytest
 
 from app.tracking_sync import (
     extract_amount,
+    extract_operational_reason,
+    get_next_ticket_id,
     get_pending_approvals,
     sync_ticket_to_spreadsheet,
     update_approval_status,
@@ -40,6 +42,7 @@ def test_sync_ticket_creates_and_queries_pending(temp_csv):
     assert result["ticket_id"] == "TCK-1001"
     assert result["status"] == "Pending"
     assert float(result["amount"]) == 75.00
+    assert "notes" in result
     assert result["notes"] == ""
 
     pending = get_pending_approvals(csv_path=temp_csv)
@@ -47,7 +50,7 @@ def test_sync_ticket_creates_and_queries_pending(temp_csv):
     assert pending[0]["ticket_id"] == "TCK-1001"
 
 
-def test_sync_ticket_missing_amount_sets_verification_flag(temp_csv):
+def test_sync_ticket_missing_amount_defaults_to_zero(temp_csv):
     ticket = {
         "ticket_id": "TCK-1002",
         "customer_name": "Bob Smith",
@@ -58,7 +61,7 @@ def test_sync_ticket_missing_amount_sets_verification_flag(temp_csv):
     }
     result = sync_ticket_to_spreadsheet(ticket, csv_path=temp_csv)
     assert float(result["amount"]) == 0.00
-    assert "Needs amount verification" in result["notes"]
+    assert result["notes"] == "Needs amount verification"
 
 
 def test_sync_ticket_updates_existing_record(temp_csv):
@@ -100,11 +103,85 @@ def test_update_approval_status(temp_csv):
     }
     sync_ticket_to_spreadsheet(ticket, csv_path=temp_csv)
 
-    updated = update_approval_status(
-        "TCK-1004", "Approved", notes="Approved by ops", csv_path=temp_csv
-    )
+    updated = update_approval_status("TCK-1004", "Approved", csv_path=temp_csv)
     assert updated["status"] == "Approved"
-    assert updated["notes"] == "Approved by ops"
 
     pending = get_pending_approvals(csv_path=temp_csv)
     assert len(pending) == 0
+
+
+def test_sync_ticket_preserves_existing_approval_status(temp_csv):
+    ticket = {
+        "ticket_id": "TCK-STATUS-01",
+        "customer_name": "Test Customer",
+        "category": "Billing",
+        "priority": "normal",
+        "amount": 100.0,
+        "reason": "Initial query",
+    }
+    sync_ticket_to_spreadsheet(ticket, csv_path=temp_csv)
+    update_approval_status("TCK-STATUS-01", "Approved", csv_path=temp_csv)
+
+    # Re-sync without explicit status in payload
+    update_payload = {
+        "ticket_id": "TCK-STATUS-01",
+        "customer_name": "Test Customer Updated",
+        "category": "Billing",
+        "priority": "normal",
+        "reason": "Customer updated details",
+    }
+    result = sync_ticket_to_spreadsheet(update_payload, csv_path=temp_csv)
+    assert result["status"] == "Approved"
+
+
+def test_sync_ticket_sanitizes_newlines_in_cells(temp_csv):
+    ticket = {
+        "ticket_id": "TCK-MULTI-01",
+        "customer_name": "Acme\nCorp",
+        "category": "Billing",
+        "priority": "normal",
+        "amount": 100.0,
+        "reason": "Line 1\nLine 2\n   Line 3",
+    }
+    result = sync_ticket_to_spreadsheet(ticket, csv_path=temp_csv)
+    assert result["customer_name"] == "Acme Corp"
+    assert result["reason"] == "Line 1 Line 2 Line 3"
+
+    with open(temp_csv, mode="r", encoding="utf-8") as f:
+        lines = [line.strip() for line in f if line.strip()]
+    # Exactly header + 1 row
+    assert len(lines) == 2
+    header = lines[0].split(",")
+    assert "notes" in header
+
+
+def test_update_approval_status_persists_notes(temp_csv):
+    ticket = {
+        "ticket_id": "TCK-NOTE-01",
+        "customer_name": "Diana",
+        "category": "Billing",
+        "priority": "normal",
+        "amount": 50.0,
+        "reason": "Adjustment",
+    }
+    sync_ticket_to_spreadsheet(ticket, csv_path=temp_csv)
+    updated = update_approval_status(
+        "TCK-NOTE-01", "Approved", notes="Approved by manager", csv_path=temp_csv
+    )
+    assert updated["notes"] == "Approved by manager"
+
+
+def test_get_next_ticket_id_sequential(temp_csv):
+    ticket_id = get_next_ticket_id(csv_path=temp_csv)
+    assert ticket_id.startswith("TCK-")
+    num = int(ticket_id.split("-")[1])
+    assert num >= 1020
+
+
+def test_extract_operational_reason():
+    reason = extract_operational_reason(
+        "Dispute on annual subscription renewal",
+        "Hi, I was billed $250.00 twice on my credit card for invoice #9401. Please issue a refund for the duplicate charge.",
+    )
+    assert "Duplicate charge refund" in reason
+    assert "9401" in reason

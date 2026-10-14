@@ -1,21 +1,33 @@
+import asyncio
 import csv
+import logging
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
 
 from app.batch_digest import generate_batch_digest
 from app.escalation import send_escalation_alert
 from app.retrieval import KBRetriever
-from app.schemas import TriageRequest, TriageResponse
-from app.tracking_sync import get_pending_approvals, sync_ticket_to_spreadsheet
+from app.scheduler import start_daily_digest_scheduler
+from app.schemas import SyncTicketRequest, TriageRequest, TriageResponse
+from app.tracking_sync import (
+    SpreadsheetLockedError,
+    get_pending_approvals,
+    sanitize_cell,
+    sync_ticket_to_spreadsheet,
+    update_approval_status,
+)
 from app.triage_ai import classify_and_reply
 from ticket_summary import compute_metrics, parse_iso_timestamp
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -55,7 +67,33 @@ ALLOWED_ORIGINS = (
     else LOCAL_ORIGINS
 )
 
-app = FastAPI(title="ticket-api")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application startup and shutdown lifecycle tasks."""
+    scheduler_task = asyncio.create_task(start_daily_digest_scheduler())
+    try:
+        yield
+    finally:
+        scheduler_task.cancel()
+        try:
+            await scheduler_task
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(title="ticket-api", lifespan=lifespan)
+
+
+@app.exception_handler(SpreadsheetLockedError)
+def spreadsheet_locked_handler(
+    request: Request, exc: SpreadsheetLockedError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=423,
+        content={"detail": str(exc)},
+    )
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -108,50 +146,61 @@ def summary():
     }
 
 
-class SyncTicketRequest(BaseModel):
-    ticket_id: str
-    customer_name: str
-    category: str = "Billing"
-    priority: str = "normal"
-    amount: float | None = None
-    reason: str = ""
-    agent: str = "System"
-    notes: str = ""
-
-
 @app.post("/ops/sync-ticket")
-def ops_sync_ticket(req: SyncTicketRequest):
+def ops_sync_ticket(req: SyncTicketRequest) -> dict[str, Any]:
     row = sync_ticket_to_spreadsheet(req.model_dump())
     alert = send_escalation_alert(row)
     return {"ticket": row, "escalation_alert": alert}
 
 
 @app.get("/ops/approvals/pending")
-def ops_get_pending():
+def ops_get_pending() -> dict[str, Any]:
     pending = get_pending_approvals()
     return {"pending_count": len(pending), "pending_approvals": pending}
 
 
 @app.post("/ops/approvals/send-digest")
-def ops_send_digest():
+def ops_send_digest() -> dict[str, Any]:
     digest = generate_batch_digest()
     return digest
 
 
+@app.get("/ops/approvals/{ticket_id}/action", response_class=HTMLResponse)
+def ops_approval_action(ticket_id: str, status: str = Query(...)) -> HTMLResponse:
+    if status not in ("Approved", "Rejected"):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid status. Status must be 'Approved' or 'Rejected'.",
+        )
+    try:
+        update_approval_status(ticket_id, new_status=status)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=404, detail=f"Ticket not found: {ticket_id}"
+        ) from e
+
+    receipt_html = f"<html><body><h3>✓ Ticket {ticket_id} marked {status}. You may close this tab.</h3></body></html>"
+    return HTMLResponse(content=receipt_html, status_code=200)
+
+
 @app.post("/triage", response_model=TriageResponse)
-def triage(req: TriageRequest):
+def triage(req: TriageRequest) -> TriageResponse:
     matched = retriever.retrieve(req.subject, req.text)
     res = classify_and_reply(req.subject, req.text, matched_articles=matched)
     if str(res.category) == "Billing":
-        text_hash = abs(hash(f"{req.subject} {req.text}")) % 100000
+        clean_subj = sanitize_cell(req.subject)
+        clean_text = sanitize_cell(req.text)
+
         row = sync_ticket_to_spreadsheet(
             {
-                "ticket_id": f"TCK-AUTO-{text_hash:05d}",
-                "customer_name": "Incoming Customer",
+                "ticket_id": req.ticket_id,
+                "customer_name": req.customer_name,
                 "category": "Billing",
                 "priority": str(res.priority),
-                "reason": f"{req.subject}: {req.text}".strip(": "),
-                "agent": "AI Triage",
+                "reason": req.reason,
+                "subject": clean_subj,
+                "text": clean_text,
+                "agent": req.agent,
             }
         )
         if str(res.priority) == "urgent":

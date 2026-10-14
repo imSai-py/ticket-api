@@ -9,6 +9,7 @@ describe("App Triage Component", () => {
 
   it("renders form inputs and submission button", () => {
     render(<App />);
+    expect(screen.getByLabelText(/customer name/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/ticket subject/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/ticket body/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /triage ticket/i })).toBeInTheDocument();
@@ -29,6 +30,9 @@ describe("App Triage Component", () => {
 
     render(<App />);
 
+    fireEvent.change(screen.getByLabelText(/customer name/i), {
+      target: { value: "Jane Doe" },
+    });
     fireEvent.change(screen.getByLabelText(/ticket subject/i), {
       target: { value: "Cannot log in" },
     });
@@ -57,6 +61,9 @@ describe("App Triage Component", () => {
 
     render(<App />);
 
+    fireEvent.change(screen.getByLabelText(/customer name/i), {
+      target: { value: "Jane Doe" },
+    });
     fireEvent.change(screen.getByLabelText(/ticket subject/i), {
       target: { value: "Test Subject" },
     });
@@ -78,6 +85,6 @@ describe("App Triage Component", () => {
     fireEvent.click(screen.getByRole("button", { name: /triage ticket/i }));
 
     expect(screen.getByRole("alert")).toBeInTheDocument();
-    expect(screen.getByRole("alert")).toHaveTextContent(/please provide a subject or body text/i);
+    expect(screen.getByRole("alert")).toHaveTextContent(/customer name is required/i);
   });
 });

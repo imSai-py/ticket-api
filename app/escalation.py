@@ -1,17 +1,18 @@
+import logging
 import os
 from typing import Any
 
+from app.schemas import OpsTicketRecord
+from app.tracking_sync import is_ticket_urgent
+
+logger = logging.getLogger(__name__)
+
 
 def send_escalation_alert(
-    ticket: dict[str, Any], recipient_override: str | None = None
+    ticket: OpsTicketRecord | dict[str, Any], recipient_override: str | None = None
 ) -> dict[str, Any]:
     """Dispatch an instant alert for urgent escalated tickets directly to the manager inbox."""
-    is_urgent = (
-        ticket.get("priority") == "urgent"
-        or str(ticket.get("escalated", "")).lower() == "true"
-        or ticket.get("escalated") is True
-    )
-    if not is_urgent:
+    if not is_ticket_urgent(ticket):
         return {"dispatched": False, "reason": "Not an urgent ticket"}
 
     recipient = (
@@ -19,11 +20,18 @@ def send_escalation_alert(
         or os.getenv("ESCALATION_MANAGER_EMAIL")
         or "manager@company.com"
     )
-    ticket_id = ticket.get("ticket_id", "Unknown")
-    customer = ticket.get("customer_name", "Unknown")
-    category = ticket.get("category", "Billing")
-    amount = float(ticket.get("amount") or 0.0)
-    reason = ticket.get("reason", "No reason provided")
+    if isinstance(ticket, OpsTicketRecord):
+        ticket_id = ticket.ticket_id
+        customer = ticket.customer_name
+        category = ticket.category
+        amount = float(ticket.amount or 0.0)
+        reason = ticket.reason or "No reason provided"
+    else:
+        ticket_id = ticket.get("ticket_id", "Unknown")
+        customer = ticket.get("customer_name", "Unknown")
+        category = ticket.get("category", "Billing")
+        amount = float(ticket.get("amount") or 0.0)
+        reason = ticket.get("reason", "No reason provided")
 
     subject = f"[URGENT ESCALATION] Ticket {ticket_id} - {customer}"
     body = (
@@ -38,6 +46,11 @@ def send_escalation_alert(
         "ACTION REQUIRED: Immediate management review and approval required.\n"
     )
 
+    logger.warning(
+        "Dispatched urgent escalation alert for ticket %s to %s",
+        ticket_id,
+        recipient,
+    )
     return {
         "dispatched": True,
         "recipient": recipient,

@@ -18,6 +18,10 @@ interface CustomImportMetaEnv {
 }
 
 export function App() {
+  const [ticketId, setTicketId] = useState("");
+  const [customerName, setCustomerName] = useState("");
+  const [agentName, setAgentName] = useState("Mara");
+  const [reason, setReason] = useState("");
   const [subject, setSubject] = useState("");
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
@@ -39,6 +43,11 @@ export function App() {
     setError(null);
     setResult(null);
 
+    if (!customerName.trim()) {
+      setError("Customer Name is required.");
+      return;
+    }
+
     if (!subject.trim() && !text.trim()) {
       setError("Please provide a subject or body text for the ticket.");
       return;
@@ -49,7 +58,14 @@ export function App() {
       const response = await fetch(`${apiBaseUrl}/triage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subject, text }),
+        body: JSON.stringify({
+          ticket_id: ticketId.trim(),
+          customer_name: customerName.trim(),
+          agent: agentName.trim() || "Mara",
+          reason: reason.trim(),
+          subject: subject.trim(),
+          text: text.trim(),
+        }),
       });
 
       if (!response.ok) {
@@ -111,7 +127,56 @@ export function App() {
       <p>Submit incoming customer tickets for automated classification and grounded suggested replies.</p>
 
       <div className="card">
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} noValidate>
+          <div className="form-group">
+            <label htmlFor="customer">Customer Name <span style={{ color: "#dc2626" }}>*</span></label>
+            <input
+              id="customer"
+              type="text"
+              aria-label="Customer Name"
+              placeholder="e.g. Acme Corp or Jane Doe"
+              value={customerName}
+              onChange={(e) => setCustomerName(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="ticket-id">Ticket ID (Optional)</label>
+            <input
+              id="ticket-id"
+              type="text"
+              aria-label="Ticket ID"
+              placeholder="e.g. TCK-1020 (auto-generated if empty)"
+              value={ticketId}
+              onChange={(e) => setTicketId(e.target.value)}
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="agent">Support Agent</label>
+            <input
+              id="agent"
+              type="text"
+              aria-label="Support Agent"
+              placeholder="e.g. Mara"
+              value={agentName}
+              onChange={(e) => setAgentName(e.target.value)}
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="reason">Approval / Ticket Reason (Optional)</label>
+            <input
+              id="reason"
+              type="text"
+              aria-label="Approval / Ticket Reason"
+              placeholder="e.g. Duplicate charge refund (auto-extracted if empty)"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+            />
+          </div>
+
           <div className="form-group">
             <label htmlFor="subject">Ticket Subject</label>
             <input
