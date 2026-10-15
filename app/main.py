@@ -18,7 +18,9 @@ from app.retrieval import KBRetriever
 from app.scheduler import start_daily_digest_scheduler
 from app.schemas import SyncTicketRequest, TriageRequest, TriageResponse
 from app.tracking_sync import (
+    DEFAULT_CSV_PATH,
     SpreadsheetLockedError,
+    _read_all,
     get_pending_approvals,
     sanitize_cell,
     sync_ticket_to_spreadsheet,
@@ -104,6 +106,52 @@ app.add_middleware(
 )
 
 retriever = KBRetriever()
+
+
+def _check_storage_health() -> None:
+    """Verify tracking spreadsheet storage can be read."""
+    _read_all(DEFAULT_CSV_PATH)
+
+
+@app.get("/health")
+def health_check() -> JSONResponse:
+    """System health check endpoint with subsystem diagnostics."""
+    checks: dict[str, str] = {}
+    is_healthy = True
+
+    # 1. Tracking sheet storage
+    try:
+        _check_storage_health()
+        checks["storage"] = "accessible"
+    except (SpreadsheetLockedError, OSError, PermissionError) as e:
+        is_healthy = False
+        checks["storage"] = f"error: {e}"
+
+    # 2. Tickets seed data
+    if TICKETS is not None:
+        checks["tickets_data"] = "loaded"
+    else:
+        is_healthy = False
+        checks["tickets_data"] = "error: tickets not loaded"
+
+    # 3. Knowledge base retrieval index
+    if retriever is not None and getattr(retriever, "articles", None):
+        checks["knowledge_base"] = "indexed"
+    else:
+        is_healthy = False
+        checks["knowledge_base"] = "error: knowledge base unavailable"
+
+    status_str = "healthy" if is_healthy else "degraded"
+    status_code = 200 if is_healthy else 503
+
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "status": status_str,
+            "version": "1.0.0",
+            "checks": checks,
+        },
+    )
 
 
 def to_public_ticket_dict(ticket):
