@@ -3,14 +3,16 @@
 Write this for Mara. She is not an engineer. Aim for 150 to 250 words, with no jargon.
 
 ## Progress
-Your billing requests now flow automatically into your tracking spreadsheet. Urgent issues send an instant alert email right away. Every morning, managers receive one tidy digest email listing all pending requests with simple one-click buttons to approve or reject them directly from their email or web browser. Once clicked, the spreadsheet updates immediately.
+Your support team can now view, review, and track customer billing requests in one place. Support agents can enter customer issues through a clean web screen that automatically suggests answers and records details in the operations tracking sheet. 
+
+Urgent issues send an instant alert email to leadership immediately. Every morning at 9:00 AM, managers receive a single summary email. This email includes simple one-click buttons to approve or reject refund requests directly from their inbox, with no login required. When a manager clicks a button, the system updates the tracking sheet instantly and emails the support agent with the decision. Managers can also download clean escalation reports with one click.
 
 ## What changed
-Earlier, team members had to copy ticket details by hand and email managers individually. We replaced this with automatic tracking and a single daily summary. We also confirmed our refund policy rules so customers get clear answers, and we added file safety so the spreadsheet will not corrupt if someone has it open.
+We adapted the system to accept IT's daily spreadsheet file smoothly. All dates now appear in the familiar Day/Month/Year format (`DD/MM/YYYY`). Critical customer disputes now automatically move to top priority ahead of routine requests, and all refund amounts default clearly to US dollars.
 
 ## Risks
-If Microsoft Excel keeps the spreadsheet file open with a hard lock during a save, new updates will pause until the file is closed. We now show a friendly notice when this happens, but moving to an online shared spreadsheet (like Google Sheets) next week will permanently prevent this.
+If someone keeps the shared spreadsheet open in desktop Excel during a save, new updates will pause until they close the file. Our system displays a clear notice to prevent file corruption.
 
 ## What I need from you
-1. Confirm your preferred daily delivery time for the manager digest email (currently set to 9:00 AM).
-2. Confirm the manager email address for urgent escalation alerts by Friday morning.
+1. Confirm your attendance for the live walkthrough demonstration today at 5:00 PM.
+2. Verify the manager email address for daily approval summaries and urgent alerts.
