@@ -215,19 +215,25 @@ def ops_send_digest() -> dict[str, Any]:
 
 @app.get("/ops/approvals/{ticket_id}/action", response_class=HTMLResponse)
 def ops_approval_action(ticket_id: str, status: str = Query(...)) -> HTMLResponse:
+    clean_ticket_id = ticket_id.strip()
+    if not clean_ticket_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Ticket ID cannot be empty or whitespace.",
+        )
     if status not in ("Approved", "Rejected"):
         raise HTTPException(
             status_code=400,
             detail="Invalid status. Status must be 'Approved' or 'Rejected'.",
         )
     try:
-        update_approval_status(ticket_id, new_status=status)
+        update_approval_status(clean_ticket_id, new_status=status)
     except ValueError as e:
         raise HTTPException(
-            status_code=404, detail=f"Ticket not found: {ticket_id}"
+            status_code=404, detail=f"Ticket not found: {clean_ticket_id}"
         ) from e
 
-    receipt_html = f"<html><body><h3>✓ Ticket {ticket_id} marked {status}. You may close this tab.</h3></body></html>"
+    receipt_html = f"<html><body><h3>✓ Ticket {clean_ticket_id} marked {status}. You may close this tab.</h3></body></html>"
     return HTMLResponse(content=receipt_html, status_code=200)
 
 

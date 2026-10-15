@@ -2,7 +2,7 @@
 
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class CategoryEnum(str, Enum):
@@ -88,9 +88,22 @@ class SyncTicketRequest(BaseModel):
     ticket_id: str = Field(default="", description="Optional ticket ID")
     customer_name: str = Field(default="Customer", description="Customer full name")
     category: str = Field(default="Billing", description="Ticket category")
-    priority: str = Field(default="normal", description="Ticket priority")
-    amount: float | None = Field(default=None, description="Monetary amount if known")
+    priority: PriorityEnum = Field(
+        default=PriorityEnum.NORMAL, description="Ticket priority"
+    )
+    amount: float | None = Field(
+        default=None, ge=0.0, description="Monetary amount if known"
+    )
     reason: str = Field(default="", description="Ticket reason")
     agent: str = Field(default="Mara", description="Support agent handling ticket")
     escalated: bool = Field(default=False, description="Manual escalation flag")
     notes: str = Field(default="", description="Optional initial notes")
+
+    model_config = ConfigDict(use_enum_values=True)
+
+    @field_validator("customer_name")
+    @classmethod
+    def validate_customer_name(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("customer_name cannot be empty or whitespace.")
+        return v.strip()
