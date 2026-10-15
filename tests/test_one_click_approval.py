@@ -153,3 +153,39 @@ def test_one_click_need_more_info_via_query_route(tmp_path, monkeypatch):
     )
     assert res.status_code == 200
     assert "Ticket TCK-ACT-104 marked as needing more info" in res.text
+
+
+def test_action_route_dispatches_agent_info_request(tmp_path, monkeypatch):
+    test_csv = str(tmp_path / "dispatch_agent_info.csv")
+    monkeypatch.setenv("OPS_TRACKING_CSV_PATH", test_csv)
+
+    dispatched_calls = []
+
+    def mock_send_agent_info(ticket, instructions=None, recipient_override=None):
+        dispatched_calls.append(
+            {
+                "ticket_id": ticket.get("ticket_id"),
+                "customer": ticket.get("customer_name"),
+            }
+        )
+        return {"dispatched": True, "action": "Needs Info"}
+
+    monkeypatch.setattr("app.main.send_agent_info_request_email", mock_send_agent_info)
+
+    sync_ticket_to_spreadsheet(
+        {
+            "ticket_id": "TCK-ACT-105",
+            "customer_name": "Wally West",
+            "category": "Billing",
+            "priority": "normal",
+            "amount": 95.0,
+            "reason": "Overcharge on account",
+            "agent": "Cisco",
+        },
+        csv_path=test_csv,
+    )
+
+    res = client.get("/ops/approvals/TCK-ACT-105/action?status=needs_info")
+    assert res.status_code == 200
+    assert len(dispatched_calls) == 1
+    assert dispatched_calls[0]["ticket_id"] == "TCK-ACT-105"
