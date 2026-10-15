@@ -27,6 +27,7 @@ from app.tracking_sync import (
     SpreadsheetLockedError,
     check_storage_health,
     get_pending_approvals,
+    normalize_currency_amount,
     sanitize_cell,
     sync_ticket_to_spreadsheet,
     update_approval_status,
@@ -74,16 +75,9 @@ def load_tickets(path: Path | str) -> list[dict[str, Any]]:
                     row[alias_a] = row[alias_b]
 
             if "refund_amount" in row:
-                raw_amt = (
-                    str(row.get("refund_amount") or "")
-                    .replace("$", "")
-                    .replace(",", "")
-                    .strip()
+                row["refund_amount"] = normalize_currency_amount(
+                    row.get("refund_amount")
                 )
-                try:
-                    row["refund_amount"] = float(raw_amt) if raw_amt else 0.0
-                except ValueError:
-                    row["refund_amount"] = 0.0
 
             if "resolved_at" not in row:
                 row["resolved_at"] = None
@@ -254,16 +248,8 @@ def to_public_ticket_dict(ticket: dict[str, Any]) -> dict[str, Any]:
         public_dict["assigned_to"] = ticket.get("assigned_to")
 
     if ticket.get("refund_amount") is not None and ticket.get("refund_amount") != "":
-        try:
-            amt = float(
-                str(ticket.get("refund_amount"))
-                .replace("$", "")
-                .replace(",", "")
-                .strip()
-            )
-            public_dict["refund_amount"] = f"{amt:.2f}"
-        except ValueError:
-            public_dict["refund_amount"] = "0.00"
+        amt = normalize_currency_amount(ticket.get("refund_amount"))
+        public_dict["refund_amount"] = f"{amt:.2f}"
 
     return public_dict
 

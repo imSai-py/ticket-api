@@ -143,6 +143,19 @@ def extract_amount(text: str) -> tuple[float, str]:
     return 0.0, "Needs amount verification"
 
 
+def normalize_currency_amount(val: Any) -> float:
+    """Normalize a raw or currency-formatted value to a standard float amount in USD."""
+    if val is None:
+        return 0.0
+    cleaned = str(val).replace("$", "").replace(",", "").strip()
+    if not cleaned:
+        return 0.0
+    try:
+        return float(cleaned)
+    except ValueError:
+        return 0.0
+
+
 class SpreadsheetLockedError(Exception):
     """Raised when the tracking spreadsheet file is locked by an external process."""
 
@@ -352,17 +365,24 @@ def sync_ticket_to_spreadsheet(
 
     verification_note = ""
     if refund_amt is not None and str(refund_amt).strip() != "":
-        clean_amt_str = str(refund_amt).replace("$", "").replace(",", "").strip()
-        try:
-            amount_val = float(clean_amt_str)
-        except ValueError:
+        amount_val = normalize_currency_amount(refund_amt)
+        if amount_val == 0.0 and str(refund_amt).strip() not in (
+            "0",
+            "0.0",
+            "0.00",
+            "$0",
+            "$0.00",
+        ):
             amount_val, verification_note = extract_amount(text_content)
     elif provided_amount is not None and str(provided_amount).strip() != "":
-        try:
-            amount_val = float(
-                str(provided_amount).replace("$", "").replace(",", "").strip()
-            )
-        except ValueError:
+        amount_val = normalize_currency_amount(provided_amount)
+        if amount_val == 0.0 and str(provided_amount).strip() not in (
+            "0",
+            "0.0",
+            "0.00",
+            "$0",
+            "$0.00",
+        ):
             amount_val, verification_note = extract_amount(text_content)
     else:
         amount_val, verification_note = extract_amount(text_content)
