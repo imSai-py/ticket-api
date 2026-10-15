@@ -102,7 +102,9 @@ class SyncTicketRequest(BaseModel):
 
     ticket_id: str = Field(default="", description="Optional ticket ID")
     customer_name: str = Field(default="Customer", description="Customer full name")
-    category: str = Field(default="Billing", description="Ticket category")
+    category: CategoryEnum = Field(
+        default=CategoryEnum.BILLING, description="Ticket category"
+    )
     priority: PriorityEnum = Field(
         default=PriorityEnum.NORMAL, description="Ticket priority"
     )

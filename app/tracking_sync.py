@@ -36,9 +36,6 @@ def get_ops_tracking_path() -> str:
     )
 
 
-DEFAULT_CSV_PATH = os.path.join("data", "ops_tracking_sheet.csv")
-
-
 def check_storage_health(csv_path: str | None = None) -> None:
     """Verify tracking spreadsheet storage can be read without lock contention."""
     target_path = csv_path or get_ops_tracking_path()
