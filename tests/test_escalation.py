@@ -124,3 +124,122 @@ def test_triage_auto_sync_triggers_escalation_for_urgent(monkeypatch):
     urgent_ticket = next((t for t in pending if t["priority"] == "urgent"), None)
     assert urgent_ticket is not None
     assert urgent_ticket["escalated"] == "True"
+
+
+def test_smtp_email_dispatch_flow(monkeypatch):
+    from app.escalation import dispatch_smtp_email
+
+    # 1. Mock mode when live SMTP is not enabled in test
+    monkeypatch.delenv("ENABLE_LIVE_SMTP_IN_TESTS", raising=False)
+    res_mock = dispatch_smtp_email("test@example.com", "Test Subject", "Test Body")
+    assert res_mock["sent"] is False
+    assert res_mock["mode"] == "mock"
+
+    # 2. Simulated SMTP connection
+    sent_calls = []
+
+    class MockSMTP:
+        def __init__(self, host, port, timeout=10):
+            self.host = host
+            self.port = port
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+
+        def starttls(self):
+            pass
+
+        def login(self, user, pwd):
+            pass
+
+        def sendmail(self, from_addr, to_addrs, msg_str):
+            sent_calls.append({"from": from_addr, "to": to_addrs, "msg": msg_str})
+
+    monkeypatch.setattr("smtplib.SMTP", MockSMTP)
+    monkeypatch.setenv("ENABLE_LIVE_SMTP_IN_TESTS", "true")
+    monkeypatch.setenv("SMTP_HOST", "smtp.testserver.com")
+    monkeypatch.setenv("SMTP_PORT", "587")
+    monkeypatch.setenv("SMTP_USER", "notifications@company.com")
+    monkeypatch.setenv("SMTP_PASSWORD", "secret_pass")
+
+    res_live = dispatch_smtp_email(
+        "sailakshman212005@gmail.com", "Urgent Alert", "Ticket body"
+    )
+    assert res_live["sent"] is True
+    assert res_live["mode"] == "smtp"
+    assert len(sent_calls) == 1
+    assert sent_calls[0]["to"] == ["sailakshman212005@gmail.com"]
+
+
+def test_escalation_alert_contains_html_approve_reject_buttons(monkeypatch):
+    monkeypatch.setenv("BASE_URL", "http://localhost:8000")
+    ticket = {
+        "ticket_id": "TCK-BTN-1",
+        "customer_name": "Test Customer",
+        "category": "Billing",
+        "priority": "urgent",
+        "amount": 450.0,
+        "reason": "Double billing dispute",
+    }
+    alert = send_escalation_alert(ticket, dispatch_smtp=False)
+    assert alert["dispatched"] is True
+    assert "html_body" in alert
+    assert "✅ Approve" in alert["html_body"]
+    assert "❌ Reject" in alert["html_body"]
+    assert (
+        "http://localhost:8000/ops/approvals/TCK-BTN-1/action?status=Approved"
+        in alert["html_body"]
+    )
+    assert (
+        "http://localhost:8000/ops/approvals/TCK-BTN-1/action?status=Rejected"
+        in alert["html_body"]
+    )
+
+
+def test_escalation_alert_non_billing_category_suppressed():
+    non_billing_ticket = {
+        "ticket_id": "TCK-LOGIN-URGENT",
+        "customer_name": "Login User",
+        "category": "Login",
+        "priority": "urgent",
+        "amount": 0.0,
+        "reason": "Locked out of 2FA",
+    }
+    alert = send_escalation_alert(non_billing_ticket)
+    assert alert["dispatched"] is False
+    assert "outside current escalation scope" in alert["reason"]
+
+
+def test_batch_ingest_dispatches_single_digest_email(tmp_path, monkeypatch):
+    test_csv = str(tmp_path / "single_digest_ops.csv")
+    monkeypatch.setenv("OPS_TRACKING_CSV_PATH", test_csv)
+    monkeypatch.setenv("OPS_TRACKING_PATH", test_csv)
+
+    digest_calls = []
+
+    def mock_generate_batch_digest(*args, **kwargs):
+        digest_calls.append({"args": args, "kwargs": kwargs})
+        return {"has_pending": True, "dispatched": True, "pending_count": 2}
+
+    monkeypatch.setattr("app.main.generate_batch_digest", mock_generate_batch_digest)
+
+    csv_batch = (
+        "ticket_id,created_at,status,priority,category,assigned_to,customer_email,labels,refund_amount\n"
+        "TCK-B1,2026-10-15 10:00,open,urgent,Billing,riya,user1@example.com,escalated,120.00\n"
+        "TCK-B2,2026-10-15 10:05,open,urgent,Refunds,sam,user2@example.com,escalated,250.00\n"
+        "TCK-B3,2026-10-15 10:10,open,normal,Login,lia,user3@example.com,,0.00\n"
+    )
+
+    resp = client.post(
+        "/ops/ingest-batch",
+        files={"file": ("batch.csv", csv_batch.encode("utf-8"), "text/csv")},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["processed_count"] == 3
+    assert data["escalated_count"] == 2
+    # Verify exactly ONE consolidated digest was triggered for the entire batch
+    assert len(digest_calls) == 1

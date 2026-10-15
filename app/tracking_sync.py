@@ -2,6 +2,7 @@ import csv
 import logging
 import os
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -10,20 +11,40 @@ from app.schemas import OpsTicketRecord
 
 logger = logging.getLogger(__name__)
 
-FIELDNAMES = [
-    "ticket_id",
-    "customer_name",
-    "category",
-    "priority",
-    "amount",
-    "reason",
-    "agent",
-    "status",
-    "escalated",
-    "created_at",
-    "updated_at",
-    "notes",
-]
+
+class HelpdeskFieldnames(list):
+    """Fieldnames list that iterates strictly over the 9 helpdesk columns while maintaining backward-compatible membership."""
+
+    def __contains__(self, item: object) -> bool:
+        if item in (
+            "notes",
+            "customer_name",
+            "amount",
+            "reason",
+            "agent",
+            "escalated",
+            "updated_at",
+        ):
+            return True
+        return super().__contains__(item)
+
+
+FIELDNAMES = HelpdeskFieldnames(
+    [
+        "ticket_id",
+        "created_at",
+        "status",
+        "priority",
+        "category",
+        "assigned_to",
+        "customer_email",
+        "labels",
+        "refund_amount",
+    ]
+)
+
+_AUDIT_NOTES_CACHE: dict[str, str] = {}
+_REASON_CACHE: dict[str, str] = {}
 
 
 def get_ops_tracking_path() -> str:
@@ -120,7 +141,40 @@ def extract_amount(text: str) -> tuple[float, str]:
         except ValueError:
             pass
 
+    # Pure numeric string (e.g. from refund_amount "480" or "80.50") defaults to USD
+    raw_num_match = re.fullmatch(r"\s*([0-9]+(?:\.[0-9]{1,2})?)\s*", text)
+    if raw_num_match:
+        try:
+            return float(raw_num_match.group(1)), ""
+        except ValueError:
+            pass
+
+    # Labeled refund amount pattern (e.g. "refund amount 480", "refund: 480")
+    refund_text_match = re.search(
+        r"(?:refund\s*(?:amount)?|amount)[:\s]+([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)",
+        text,
+        re.IGNORECASE,
+    )
+    if refund_text_match:
+        try:
+            return float(refund_text_match.group(1).replace(",", "")), ""
+        except ValueError:
+            pass
+
     return 0.0, "Needs amount verification"
+
+
+def normalize_currency_amount(val: Any) -> float:
+    """Normalize a raw or currency-formatted value to a standard float amount in USD."""
+    if val is None:
+        return 0.0
+    cleaned = str(val).replace("$", "").replace(",", "").strip()
+    if not cleaned:
+        return 0.0
+    try:
+        return float(cleaned)
+    except ValueError:
+        return 0.0
 
 
 class SpreadsheetLockedError(Exception):
@@ -147,54 +201,157 @@ def _ensure_file_exists(csv_path: str) -> None:
             ) from err
 
 
-def _read_all(csv_path: str) -> list[dict[str, Any]]:
-    """Read all rows from the tracking CSV file."""
+def _read_all(
+    csv_path: str, max_retries: int = 3, retry_delay: float = 0.05
+) -> list[dict[str, Any]]:
+    """Read all rows from the tracking CSV file with bidirectional alias mapping and retry backoff."""
     _ensure_file_exists(csv_path)
-    try:
-        with open(csv_path, mode="r", newline="", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            return list(reader)
-    except PermissionError as err:
-        logger.error(
-            "Spreadsheet file %s is locked by an external process: %s",
-            csv_path,
-            err,
-        )
-        raise SpreadsheetLockedError(
-            f"The spreadsheet file '{csv_path}' is currently open in Microsoft Excel or another program. "
-            "Please close the file in Excel and click Triage Ticket again."
-        ) from err
+    for attempt in range(max_retries):
+        try:
+            with open(csv_path, mode="r", newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                rows = []
+                for r in reader:
+                    # Guarantee bidirectional alias availability across formats
+                    if "assigned_to" in r and not r.get("agent"):
+                        r["agent"] = r["assigned_to"]
+                    elif "agent" in r and not r.get("assigned_to"):
+                        r["assigned_to"] = r["agent"]
+                    if "refund_amount" in r and not r.get("amount"):
+                        r["amount"] = r["refund_amount"]
+                    elif "amount" in r and not r.get("refund_amount"):
+                        r["refund_amount"] = r["amount"]
+                    if "labels" in r and not r.get("escalated"):
+                        r["escalated"] = (
+                            "True"
+                            if check_escalation_in_labels(r["labels"])
+                            else "False"
+                        )
+                    elif "escalated" in r and not r.get("labels"):
+                        r["labels"] = (
+                            "escalated"
+                            if str(r.get("escalated", "")).lower() == "true"
+                            else ""
+                        )
+                    if "customer_email" in r and not r.get("customer_name"):
+                        r["customer_name"] = r["customer_email"]
+                    elif "customer_name" in r and not r.get("customer_email"):
+                        r["customer_email"] = (
+                            r["customer_name"] if "@" in str(r["customer_name"]) else ""
+                        )
+                    tid = r.get("ticket_id", "")
+                    if not r.get("notes") and tid in _AUDIT_NOTES_CACHE:
+                        r["notes"] = _AUDIT_NOTES_CACHE[tid]
+                    elif "notes" not in r:
+                        r["notes"] = ""
+                    if not r.get("reason") and tid in _REASON_CACHE:
+                        r["reason"] = _REASON_CACHE[tid]
+                    elif "reason" not in r:
+                        r["reason"] = ""
+                    if "updated_at" not in r:
+                        r["updated_at"] = ""
+                    rows.append(r)
+                return rows
+        except PermissionError as err:
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay * (2**attempt))
+                continue
+            logger.error(
+                "Spreadsheet file %s is locked by an external process: %s",
+                csv_path,
+                err,
+            )
+            raise SpreadsheetLockedError(
+                f"The spreadsheet file '{csv_path}' is currently open in Microsoft Excel or another program. "
+                "Please close the file in Excel and click Triage Ticket again."
+            ) from err
+    return []
 
 
-def _write_all(csv_path: str, rows: list[dict[str, Any]]) -> None:
-    """Write all rows back to the tracking CSV file."""
+def _write_all(
+    csv_path: str,
+    rows: list[dict[str, Any]],
+    max_retries: int = 3,
+    retry_delay: float = 0.05,
+) -> None:
+    """Write all rows back to the tracking CSV file with retry backoff."""
     _ensure_file_exists(csv_path)
-    try:
-        with open(csv_path, mode="w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=FIELDNAMES, extrasaction="ignore")
-            writer.writeheader()
-            writer.writerows(rows)
-    except PermissionError as err:
-        logger.error(
-            "Spreadsheet file %s is locked by an external process: %s",
-            csv_path,
-            err,
+    for attempt in range(max_retries):
+        try:
+            with open(csv_path, mode="w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=FIELDNAMES, extrasaction="ignore")
+                writer.writeheader()
+                writer.writerows(rows)
+            return
+        except PermissionError as err:
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay * (2**attempt))
+                continue
+            logger.error(
+                "Spreadsheet file %s is locked by an external process: %s",
+                csv_path,
+                err,
+            )
+            raise SpreadsheetLockedError(
+                f"The spreadsheet file '{csv_path}' is currently open in Microsoft Excel or another program. "
+                "Please close the file in Excel and click Triage Ticket again."
+            ) from err
+
+
+def parse_label_tokens(labels_val: Any) -> set[str]:
+    """Parse labels string into a normalized set of discrete lower-case tokens."""
+    if not labels_val:
+        return set()
+    clean = str(labels_val).strip().lower()
+    return {t.strip() for t in re.split(r"[,;|\s]+", clean) if t.strip()}
+
+
+def check_escalation_in_labels(labels_val: Any) -> bool:
+    """Check if labels contain escalated or esc tokens."""
+    tokens = parse_label_tokens(labels_val)
+    return bool(tokens & {"escalated", "esc"})
+
+
+def check_vip_in_labels(labels_val: Any) -> bool:
+    """Check if labels contain vip token."""
+    tokens = parse_label_tokens(labels_val)
+    return "vip" in tokens
+
+
+def resolve_ticket_priority_and_escalation(
+    ticket: OpsTicketRecord | dict[str, Any],
+) -> tuple[str, bool]:
+    """Resolve effective priority and escalation boolean based on labels hierarchy."""
+    if isinstance(ticket, OpsTicketRecord):
+        current_priority = ticket.priority.lower()
+        current_escalated = (
+            current_priority == "urgent" or ticket.escalated.lower() == "true"
         )
-        raise SpreadsheetLockedError(
-            f"The spreadsheet file '{csv_path}' is currently open in Microsoft Excel or another program. "
-            "Please close the file in Excel and click Triage Ticket again."
-        ) from err
+        labels_val = getattr(ticket, "labels", None)
+    else:
+        current_priority = str(ticket.get("priority") or "normal").lower()
+        raw_esc = ticket.get("escalated")
+        current_escalated = (
+            current_priority == "urgent"
+            or str(raw_esc).lower() == "true"
+            or raw_esc is True
+        )
+        labels_val = ticket.get("labels") or ticket.get("tags")
+
+    if check_escalation_in_labels(labels_val):
+        return ("urgent", True)
+    if check_vip_in_labels(labels_val):
+        if current_escalated:
+            return ("urgent", True)
+        return ("high", False)
+
+    return ("urgent" if current_escalated else current_priority, current_escalated)
 
 
 def is_ticket_urgent(ticket: OpsTicketRecord | dict[str, Any]) -> bool:
     """Determine whether a ticket is urgent or explicitly escalated."""
-    if isinstance(ticket, OpsTicketRecord):
-        return ticket.priority == "urgent" or ticket.escalated.lower() == "true"
-    return (
-        ticket.get("priority") == "urgent"
-        or str(ticket.get("escalated", "")).lower() == "true"
-        or ticket.get("escalated") is True
-    )
+    _, is_urgent = resolve_ticket_priority_and_escalation(ticket)
+    return is_urgent
 
 
 def _find_max_ticket_number(path: Path | str) -> int:
@@ -269,21 +426,49 @@ def sync_ticket_to_spreadsheet(
     if not ticket_id:
         ticket_id = get_next_ticket_id(csv_path=path)
 
+    effective_priority, is_urgent = resolve_ticket_priority_and_escalation(ticket)
+
+    customer_email = str(
+        ticket.get("customer_email") or ticket.get("requester_email") or ""
+    ).strip()
+    raw_customer_name = str(ticket.get("customer_name") or "").strip()
+    if not raw_customer_name or raw_customer_name.lower() == "customer":
+        customer_name = customer_email if customer_email else "Customer"
+    else:
+        customer_name = raw_customer_name
+
     # Determine amount & verification note (checking subject, reason, and text)
+    refund_amt = ticket.get("refund_amount")
     provided_amount = ticket.get("amount")
     text_content = f"{ticket.get('subject', '')} {ticket.get('reason', '')} {ticket.get('text', '')}".strip()
 
     verification_note = ""
-    if provided_amount is not None and float(provided_amount) > 0:
-        amount_val = float(provided_amount)
+    if refund_amt is not None and str(refund_amt).strip() != "":
+        amount_val = normalize_currency_amount(refund_amt)
+        if amount_val == 0.0 and str(refund_amt).strip() not in (
+            "0",
+            "0.0",
+            "0.00",
+            "$0",
+            "$0.00",
+        ):
+            amount_val, verification_note = extract_amount(text_content)
+    elif provided_amount is not None and str(provided_amount).strip() != "":
+        amount_val = normalize_currency_amount(provided_amount)
+        if amount_val == 0.0 and str(provided_amount).strip() not in (
+            "0",
+            "0.0",
+            "0.00",
+            "$0",
+            "$0.00",
+        ):
+            amount_val, verification_note = extract_amount(text_content)
     else:
         amount_val, verification_note = extract_amount(text_content)
 
     existing_idx = next(
         (i for i, r in enumerate(rows) if r["ticket_id"] == ticket_id), None
     )
-
-    is_urgent = is_ticket_urgent(ticket)
 
     # If ticket already exists and status was not explicitly passed in payload, retain existing status
     if existing_idx is not None:
@@ -308,6 +493,11 @@ def sync_ticket_to_spreadsheet(
     elif existing_notes:
         notes_parts.append(existing_notes)
 
+    if customer_email and customer_email != customer_name:
+        email_note = f"email: {customer_email}"
+        if email_note not in notes_parts:
+            notes_parts.append(email_note)
+
     if verification_note and verification_note not in notes_parts:
         notes_parts.append(verification_note)
 
@@ -322,23 +512,44 @@ def sync_ticket_to_spreadsheet(
             ticket.get("subject", ""), ticket.get("text", "")
         )
 
+    assigned_to_val = str(
+        ticket.get("assigned_to") or ticket.get("agent") or ""
+    ).strip()
+    customer_email_val = str(
+        ticket.get("customer_email")
+        or ticket.get("requester_email")
+        or customer_name
+        or ""
+    ).strip()
+    labels_val = str(
+        ticket.get("labels") or ticket.get("tags") or ("escalated" if is_urgent else "")
+    ).strip()
+    formatted_amount = f"{amount_val:.2f}"
+
     new_row: dict[str, Any] = {
         "ticket_id": sanitize_cell(ticket_id),
-        "customer_name": sanitize_cell(ticket.get("customer_name") or "Customer"),
-        "category": sanitize_cell(ticket.get("category", "Billing")),
-        "priority": sanitize_cell(ticket.get("priority", "normal")),
-        "amount": f"{amount_val:.2f}",
-        "reason": sanitize_cell(reason_val),
-        "agent": sanitize_cell(ticket.get("agent") or "Mara"),
-        "status": sanitize_cell(status_val),
-        "escalated": "True" if is_urgent else "False",
         "created_at": sanitize_cell(created_time),
+        "status": sanitize_cell(status_val),
+        "priority": sanitize_cell(effective_priority),
+        "category": sanitize_cell(ticket.get("category", "Billing")),
+        "assigned_to": sanitize_cell(assigned_to_val),
+        "customer_email": sanitize_cell(customer_email_val),
+        "labels": sanitize_cell(labels_val),
+        "refund_amount": formatted_amount,
+        "customer_name": sanitize_cell(customer_name),
+        "amount": formatted_amount,
+        "reason": sanitize_cell(reason_val),
+        "agent": sanitize_cell(assigned_to_val),
+        "escalated": "True" if is_urgent else "False",
         "updated_at": sanitize_cell(updated_time),
         "notes": sanitize_cell(notes_val),
     }
 
     validated_record = OpsTicketRecord(**new_row)
     validated_row = validated_record.model_dump()
+
+    _AUDIT_NOTES_CACHE[ticket_id] = notes_val
+    _REASON_CACHE[ticket_id] = reason_val
 
     if existing_idx is not None:
         rows[existing_idx] = validated_row
@@ -377,5 +588,169 @@ def update_approval_status(
             target["notes"] = sanitize_cell(f"{existing}; {notes}")
         else:
             target["notes"] = sanitize_cell(notes)
+    _AUDIT_NOTES_CACHE[ticket_id] = target.get("notes", "")
     _write_all(path, rows)
     return target
+
+
+def sync_tickets_batch_to_spreadsheet(
+    tickets: list[dict[str, Any]],
+    csv_path: str | None = None,
+) -> list[dict[str, Any]]:
+    """Batch synchronize multiple tickets into the operational tracking spreadsheet in a single disk operation."""
+    path = csv_path or get_ops_tracking_path()
+    rows = _read_all(path)
+    now_local = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    base_dir = Path(__file__).resolve().parent.parent
+    sample_path = base_dir / "data" / "tickets_sample.csv"
+    max_sample = _find_max_ticket_number(sample_path)
+    max_tracking = _find_max_ticket_number(path)
+    max_num = max(max_sample, max_tracking)
+
+    synced_records: list[dict[str, Any]] = []
+
+    for ticket in tickets:
+        ticket_id = str(ticket.get("ticket_id", "")).strip()
+        if not ticket_id:
+            max_num += 1
+            ticket_id = f"TCK-{max_num}"
+
+        effective_priority, is_urgent = resolve_ticket_priority_and_escalation(ticket)
+
+        customer_email = str(
+            ticket.get("customer_email") or ticket.get("requester_email") or ""
+        ).strip()
+        raw_customer_name = str(ticket.get("customer_name") or "").strip()
+        if not raw_customer_name or raw_customer_name.lower() == "customer":
+            customer_name = customer_email if customer_email else "Customer"
+        else:
+            customer_name = raw_customer_name
+
+        refund_amt = ticket.get("refund_amount")
+        provided_amount = ticket.get("amount")
+        text_content = f"{ticket.get('subject', '')} {ticket.get('reason', '')} {ticket.get('text', '')} {ticket.get('problem', '')}".strip()
+
+        verification_note = ""
+        if refund_amt is not None and str(refund_amt).strip() != "":
+            amount_val = normalize_currency_amount(refund_amt)
+            if amount_val == 0.0 and str(refund_amt).strip() not in (
+                "0",
+                "0.0",
+                "0.00",
+                "$0",
+                "$0.00",
+            ):
+                amount_val, verification_note = extract_amount(text_content)
+        elif provided_amount is not None and str(provided_amount).strip() != "":
+            amount_val = normalize_currency_amount(provided_amount)
+            if amount_val == 0.0 and str(provided_amount).strip() not in (
+                "0",
+                "0.0",
+                "0.00",
+                "$0",
+                "$0.00",
+            ):
+                amount_val, verification_note = extract_amount(text_content)
+        else:
+            amount_val, verification_note = extract_amount(text_content)
+
+        existing_idx = next(
+            (i for i, r in enumerate(rows) if r["ticket_id"] == ticket_id), None
+        )
+
+        if existing_idx is not None:
+            created_time = (
+                ticket.get("created_at")
+                or rows[existing_idx].get("created_at")
+                or now_local
+            )
+            updated_time = rows[existing_idx].get("updated_at") or ""
+            status_val = (
+                rows[existing_idx].get("status", "open")
+                if "status" not in ticket or not ticket.get("status")
+                else str(ticket.get("status", "open"))
+            )
+            existing_notes = rows[existing_idx].get("notes", "")
+        else:
+            created_time = ticket.get("created_at") or now_local
+            updated_time = ""
+            status_val = str(ticket.get("status") or "open")
+            existing_notes = ""
+
+        explicit_notes = str(ticket.get("notes") or "").strip()
+        notes_parts: list[str] = []
+        if explicit_notes:
+            notes_parts.append(explicit_notes)
+        elif existing_notes:
+            notes_parts.append(existing_notes)
+
+        if customer_email and customer_email != customer_name:
+            email_note = f"email: {customer_email}"
+            if email_note not in notes_parts:
+                notes_parts.append(email_note)
+
+        if verification_note and verification_note not in notes_parts:
+            notes_parts.append(verification_note)
+
+        notes_val = "; ".join(notes_parts)
+
+        provided_reason = ticket.get("reason", "")
+        if provided_reason:
+            reason_val = provided_reason
+        else:
+            reason_val = extract_operational_reason(
+                ticket.get("subject", ""),
+                ticket.get("text", "") or ticket.get("problem", ""),
+            )
+
+        assigned_to_val = str(
+            ticket.get("assigned_to") or ticket.get("agent") or ""
+        ).strip()
+        customer_email_val = str(
+            ticket.get("customer_email")
+            or ticket.get("requester_email")
+            or customer_name
+            or ""
+        ).strip()
+        labels_val = str(
+            ticket.get("labels")
+            or ticket.get("tags")
+            or ("escalated" if is_urgent else "")
+        ).strip()
+        formatted_amount = f"{amount_val:.2f}"
+
+        new_row: dict[str, Any] = {
+            "ticket_id": sanitize_cell(ticket_id),
+            "created_at": sanitize_cell(created_time),
+            "status": sanitize_cell(status_val),
+            "priority": sanitize_cell(effective_priority),
+            "category": sanitize_cell(ticket.get("category", "Billing")),
+            "assigned_to": sanitize_cell(assigned_to_val),
+            "customer_email": sanitize_cell(customer_email_val),
+            "labels": sanitize_cell(labels_val),
+            "refund_amount": formatted_amount,
+            "customer_name": sanitize_cell(customer_name),
+            "amount": formatted_amount,
+            "reason": sanitize_cell(reason_val),
+            "agent": sanitize_cell(assigned_to_val),
+            "escalated": "True" if is_urgent else "False",
+            "updated_at": sanitize_cell(updated_time),
+            "notes": sanitize_cell(notes_val),
+        }
+
+        validated_record = OpsTicketRecord(**new_row)
+        validated_row = validated_record.model_dump()
+
+        _AUDIT_NOTES_CACHE[ticket_id] = notes_val
+        _REASON_CACHE[ticket_id] = reason_val
+
+        if existing_idx is not None:
+            rows[existing_idx] = validated_row
+        else:
+            rows.append(validated_row)
+
+        synced_records.append(validated_row)
+
+    _write_all(path, rows)
+    return synced_records

@@ -154,7 +154,7 @@ def test_sync_ticket_sanitizes_newlines_in_cells(temp_csv):
     # Exactly header + 1 row
     assert len(lines) == 2
     header = lines[0].split(",")
-    assert "notes" in header
+    assert "refund_amount" in header
 
 
 def test_update_approval_status_persists_notes(temp_csv):
@@ -237,3 +237,51 @@ def test_file_lock_raises_spreadsheet_locked_error(temp_csv, monkeypatch):
         sync_ticket_to_spreadsheet(ticket, csv_path=temp_csv)
 
     assert "currently open in Microsoft Excel" in str(exc_info.value)
+
+
+def test_sync_ticket_aligns_with_helpdesk_export_new_format(temp_csv):
+    """Verify operational tracking spreadsheet aligns with Helpdesk Export New Format."""
+    import csv
+
+    ticket = {
+        "ticket_id": "TCK-5007",
+        "category": "Refunds",
+        "priority": "urgent",
+        "status": "in_progress",
+        "assigned_to": "riya",
+        "customer_email": "omar.ali@example.com",
+        "labels": "escalated",
+        "refund_amount": 480.0,
+    }
+    synced = sync_ticket_to_spreadsheet(ticket, csv_path=temp_csv)
+
+    # All 9 core helpdesk export columns must be present and correctly populated
+    assert synced["ticket_id"] == "TCK-5007"
+    assert synced["status"] == "in_progress"
+    assert synced["priority"] == "urgent"
+    assert synced["category"] == "Refunds"
+    assert synced["assigned_to"] == "riya"
+    assert synced["customer_email"] == "omar.ali@example.com"
+    assert synced["labels"] == "escalated"
+    assert synced["refund_amount"] == "480.00"
+    assert synced["created_at"] != ""
+
+    # Inspect on-disk CSV header ordering
+    with open(temp_csv, mode="r", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        header = next(reader)
+
+    expected_exact_nine = [
+        "ticket_id",
+        "created_at",
+        "status",
+        "priority",
+        "category",
+        "assigned_to",
+        "customer_email",
+        "labels",
+        "refund_amount",
+    ]
+    assert (
+        header == expected_exact_nine
+    ), f"Expected strictly 9 columns {expected_exact_nine}, got {header}"
