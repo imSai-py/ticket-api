@@ -10,6 +10,13 @@ def test_should_trigger_digest_at_9am():
     assert should_trigger_digest(at_9am, last_run_date="2026-10-15") is False
 
 
+def test_should_trigger_digest_at_3pm():
+    at_3pm = datetime(2026, 10, 15, 15, 0, 0)
+    assert should_trigger_digest(at_3pm, last_run_date=None) is True
+    assert should_trigger_digest(at_3pm, last_run_date="2026-10-15_09") is True
+    assert should_trigger_digest(at_3pm, last_run_date="2026-10-15_15") is False
+
+
 def test_should_not_trigger_digest_at_other_times():
     at_8am = datetime(2026, 10, 15, 8, 30, 0)
     at_10am = datetime(2026, 10, 15, 10, 0, 0)

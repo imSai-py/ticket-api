@@ -34,6 +34,11 @@ def test_batch_digest_includes_action_links(tmp_path, monkeypatch):
         "https://api.example.com/ops/approvals/TCK-ACT-001/action?status=Rejected"
         in digest["body_table"]
     )
+    assert (
+        "https://api.example.com/ops/approvals/TCK-ACT-001/action?status=needs_info"
+        in digest["body_table"]
+    )
+    assert "Need More Info" in digest["html_body"]
 
 
 def test_one_click_approve_action(tmp_path, monkeypatch):

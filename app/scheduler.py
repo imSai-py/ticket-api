@@ -13,12 +13,21 @@ _LAST_RUN_DATE: str | None = None
 
 
 def should_trigger_digest(now: datetime, last_run_date: str | None) -> bool:
-    """Check if current time is within the 9:00 AM window and has not run today."""
-    today_str = now.strftime("%Y-%m-%d")
-    if last_run_date == today_str:
+    """Check if current time is within 9:00 AM or 3:00 PM windows and has not run for this slot."""
+    if now.minute != 0 or now.hour not in (9, 15):
         return False
-    # Check if hour is 9 and within the first minute
-    return now.hour == 9 and now.minute == 0
+
+    today_str = now.strftime("%Y-%m-%d")
+    slot_str = f"{today_str}_{now.hour:02d}"
+
+    if last_run_date:
+        if last_run_date == slot_str:
+            return False
+        # Backward compatibility with legacy whole-day string (e.g. "2026-10-15") for 9 AM
+        if last_run_date == today_str and now.hour == 9:
+            return False
+
+    return True
 
 
 def run_scheduler_tick(
@@ -32,14 +41,17 @@ def run_scheduler_tick(
     current_time = now or datetime.now()
     if should_trigger_digest(current_time, _LAST_RUN_DATE):
         today_str = current_time.strftime("%Y-%m-%d")
-        _LAST_RUN_DATE = today_str
+        slot_str = f"{today_str}_{current_time.hour:02d}"
+        _LAST_RUN_DATE = slot_str
         digest = generate_batch_digest()
+        slot_label = current_time.strftime("%I:%M %p")
         if not digest.get("has_pending"):
             logger.debug(
-                "Suppressing scheduled 9:00 AM digest: zero pending billing approvals."
+                "Suppressing scheduled %s digest: zero pending billing approvals.",
+                slot_label,
             )
             return digest
-        logger.info("Executing scheduled 9:00 AM batch approval digest...")
+        logger.info("Executing scheduled %s batch approval digest...", slot_label)
         return digest
     return None
 
