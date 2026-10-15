@@ -28,7 +28,12 @@ def generate_batch_digest(
     )
 
     if tickets is not None:
-        pending_tickets = [t for t in tickets if is_billing_category(t.get("category"))]
+        pending_tickets = [
+            t
+            for t in tickets
+            if is_billing_category(t.get("category"))
+            and str(t.get("status", "")).strip().lower() not in ("approved", "rejected")
+        ]
     else:
         all_pending = get_pending_approvals(csv_path=csv_path)
         pending_tickets = [
