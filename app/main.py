@@ -27,6 +27,7 @@ from app.tracking_sync import (
     SpreadsheetLockedError,
     check_storage_health,
     get_pending_approvals,
+    normalize_currency_amount,
     sanitize_cell,
     sync_ticket_to_spreadsheet,
     update_approval_status,
@@ -47,12 +48,40 @@ WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 
-def load_tickets(path):
+def format_display_date(ts_val: Any) -> str | None:
+    """Format an ISO timestamp or datetime object as DD/MM/YYYY."""
+    if not ts_val:
+        return None
+    dt = parse_iso_timestamp(ts_val)
+    if dt is None:
+        return str(ts_val)
+    return dt.strftime("%d/%m/%Y")
+
+
+def load_tickets(path: Path | str) -> list[dict[str, Any]]:
     tickets = []
-    with open(path, newline="") as f:
+    with open(path, newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f):
-            row["created"] = parse_iso_timestamp(row["created_at"])
-            row["resolved"] = parse_iso_timestamp(row["resolved_at"])
+            row["created"] = parse_iso_timestamp(row.get("created_at"))
+            row["resolved"] = parse_iso_timestamp(row.get("resolved_at"))
+
+            for alias_a, alias_b in (
+                ("labels", "tags"),
+                ("customer_email", "requester_email"),
+            ):
+                if alias_a in row and alias_b not in row:
+                    row[alias_b] = row[alias_a]
+                elif alias_b in row and alias_a not in row:
+                    row[alias_a] = row[alias_b]
+
+            if "refund_amount" in row:
+                row["refund_amount"] = normalize_currency_amount(
+                    row.get("refund_amount")
+                )
+
+            if "resolved_at" not in row:
+                row["resolved_at"] = None
+
             tickets.append(row)
     return tickets
 
@@ -193,18 +222,36 @@ def health_check() -> JSONResponse:
     )
 
 
-def to_public_ticket_dict(ticket):
-    return {
-        k: ticket[k]
-        for k in (
-            "ticket_id",
-            "created_at",
-            "resolved_at",
-            "category",
-            "priority",
-            "status",
-        )
+def to_public_ticket_dict(ticket: dict[str, Any]) -> dict[str, Any]:
+    """Serialize internal ticket record to public API representation."""
+    public_dict = {
+        "ticket_id": ticket.get("ticket_id"),
+        "created_at": format_display_date(ticket.get("created_at")),
+        "resolved_at": (
+            format_display_date(ticket.get("resolved_at"))
+            if ticket.get("resolved_at")
+            else None
+        ),
+        "category": ticket.get("category"),
+        "priority": ticket.get("priority"),
+        "status": ticket.get("status"),
     }
+    customer_email = ticket.get("customer_email") or ticket.get("requester_email")
+    if customer_email:
+        public_dict["customer_email"] = customer_email
+
+    labels = ticket.get("labels") or ticket.get("tags")
+    if labels:
+        public_dict["labels"] = labels
+
+    if ticket.get("assigned_to"):
+        public_dict["assigned_to"] = ticket.get("assigned_to")
+
+    if ticket.get("refund_amount") is not None and ticket.get("refund_amount") != "":
+        amt = normalize_currency_amount(ticket.get("refund_amount"))
+        public_dict["refund_amount"] = f"{amt:.2f}"
+
+    return public_dict
 
 
 @app.get("/tickets")

@@ -123,6 +123,19 @@ def extract_amount(text: str) -> tuple[float, str]:
     return 0.0, "Needs amount verification"
 
 
+def normalize_currency_amount(val: Any) -> float:
+    """Normalize a raw or currency-formatted value to a standard float amount in USD."""
+    if val is None:
+        return 0.0
+    cleaned = str(val).replace("$", "").replace(",", "").strip()
+    if not cleaned:
+        return 0.0
+    try:
+        return float(cleaned)
+    except ValueError:
+        return 0.0
+
+
 class SpreadsheetLockedError(Exception):
     """Raised when the tracking spreadsheet file is locked by an external process."""
 
