@@ -1,6 +1,5 @@
 """Data validation schemas for ticket-api."""
 
-import os
 from enum import Enum
 from typing import Any, NamedTuple
 
@@ -61,13 +60,10 @@ class ApprovalActionUrls(NamedTuple):
 def build_approval_action_urls(
     ticket_id: str, base_url: str | None = None
 ) -> ApprovalActionUrls:
-    """Build standardized query-parameter approval action URLs."""
-    root = (base_url or os.getenv("BASE_URL") or "http://localhost:8000").rstrip("/")
-    return ApprovalActionUrls(
-        approve_url=f"{root}/ops/approvals/action?ticket_id={ticket_id}&status=Approved",
-        reject_url=f"{root}/ops/approvals/action?ticket_id={ticket_id}&status=Rejected",
-        need_info_url=f"{root}/ops/approvals/action?ticket_id={ticket_id}&status=needs_info",
-    )
+    """Delegate to escalation routing helper for backwards compatibility."""
+    from app.escalation import build_approval_action_urls as _builder
+
+    return _builder(ticket_id, base_url)
 
 
 class TriageRequest(BaseModel):

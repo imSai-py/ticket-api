@@ -7,7 +7,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any
 
-from app.schemas import ApprovalStatusEnum, OpsTicketRecord, build_approval_action_urls
+from app.schemas import ApprovalActionUrls, ApprovalStatusEnum, OpsTicketRecord
 from app.tracking_sync import is_ticket_urgent
 
 logger = logging.getLogger(__name__)
@@ -17,6 +17,18 @@ def is_billing_category(category: Any) -> bool:
     """Return True if category is within the client billing/refund scope."""
     val = str(getattr(category, "value", category) or "").strip().lower()
     return "billing" in val or "refund" in val
+
+
+def build_approval_action_urls(
+    ticket_id: str, base_url: str | None = None
+) -> ApprovalActionUrls:
+    """Build standardized query-parameter approval action URLs."""
+    root = (base_url or os.getenv("BASE_URL") or "http://localhost:8000").rstrip("/")
+    return ApprovalActionUrls(
+        approve_url=f"{root}/ops/approvals/action?ticket_id={ticket_id}&status=Approved",
+        reject_url=f"{root}/ops/approvals/action?ticket_id={ticket_id}&status=Rejected",
+        need_info_url=f"{root}/ops/approvals/action?ticket_id={ticket_id}&status=needs_info",
+    )
 
 
 def dispatch_smtp_email(

@@ -494,7 +494,25 @@ def _resolve_resubmission_status_and_notes(
     explicit_notes = str(ticket_payload.get("notes") or "").strip()
     notes_parts: list[str] = []
     if existing_notes:
-        notes_parts.append(existing_notes)
+        existing_tokens = [p.strip() for p in existing_notes.split(";") if p.strip()]
+        reason_text_check = str(ticket_payload.get("reason") or "").strip()
+        if reason_text_check and reason_text_check.lower() not in (
+            "no reason provided",
+            "unknown",
+            "none",
+        ):
+            existing_tokens = [
+                p
+                for p in existing_tokens
+                if "needs operational justification" not in p.lower()
+            ]
+        if amount_val > 0.0:
+            existing_tokens = [
+                p
+                for p in existing_tokens
+                if "needs amount verification" not in p.lower()
+            ]
+        notes_parts.extend(existing_tokens)
 
     if explicit_notes:
         if is_resubmission and " at " not in explicit_notes:
@@ -507,7 +525,11 @@ def _resolve_resubmission_status_and_notes(
         ):
             notes_parts.append(formatted_explicit)
     elif is_resubmission:
-        resubmit_note = f"Agent resubmitted ticket at {now_local}"
+        reason_text = str(ticket_payload.get("reason") or "").strip()
+        if reason_text:
+            resubmit_note = f"Agent resubmitted ticket at {now_local}: {reason_text}"
+        else:
+            resubmit_note = f"Agent resubmitted ticket at {now_local}"
         if resubmit_note not in existing_notes and resubmit_note not in notes_parts:
             notes_parts.append(resubmit_note)
 
@@ -633,13 +655,44 @@ def sync_ticket_to_spreadsheet(
         ticket.get("labels") or ticket.get("tags") or ("escalated" if is_urgent else "")
     ).strip()
     formatted_amount = f"{amount_val:.2f}"
+    existing_row = rows[existing_idx] if existing_idx is not None else None
+    if existing_row:
+        if (
+            (customer_name == "Customer" or not customer_name)
+            and existing_row.get("customer_name")
+            and existing_row["customer_name"] != "Customer"
+        ):
+            customer_name = existing_row["customer_name"]
+        if not customer_email_val and existing_row.get("customer_email"):
+            customer_email_val = existing_row["customer_email"]
+        if not assigned_to_val and existing_row.get("assigned_to"):
+            assigned_to_val = existing_row["assigned_to"]
+        if not ticket.get("category") and existing_row.get("category"):
+            category_val = existing_row["category"]
+        else:
+            category_val = ticket.get("category", "Billing")
+        if not labels_val and existing_row.get("labels"):
+            labels_val = existing_row["labels"]
+        if (
+            not provided_reason or provided_reason == "Operational review"
+        ) and existing_row.get("reason"):
+            reason_val = existing_row["reason"]
+        if (
+            amount_val == 0.0
+            and existing_row.get("amount")
+            and existing_row["amount"] != "0.00"
+        ):
+            amount_val = normalize_currency_amount(existing_row["amount"])
+            formatted_amount = f"{amount_val:.2f}"
+    else:
+        category_val = ticket.get("category", "Billing")
 
     new_row: dict[str, Any] = {
         "ticket_id": sanitize_cell(ticket_id),
         "created_at": sanitize_cell(created_time),
         "status": sanitize_cell(status_val),
         "priority": sanitize_cell(effective_priority),
-        "category": sanitize_cell(ticket.get("category", "Billing")),
+        "category": sanitize_cell(category_val),
         "assigned_to": sanitize_cell(assigned_to_val),
         "customer_email": sanitize_cell(customer_email_val),
         "labels": sanitize_cell(labels_val),
@@ -707,28 +760,33 @@ def update_approval_status(
             f"Cannot update ticket {ticket_id}: current status '{target.get('status')}' is terminal."
         )
 
-    # Spec L62-63: needs_info cannot transition directly to Approved or Rejected without agent re-submission
-    if _is_needs_info_status(current_status) and clean_new_status in (
-        "approved",
-        "rejected",
-    ):
+    # Spec L62-63: needs_info cannot transition directly to Approved without agent re-submission
+    # (Managers can still Reject invalid tickets directly)
+    if _is_needs_info_status(current_status) and clean_new_status == "approved":
         raise ValueError(
             f"Cannot transition ticket {ticket_id} from '{target.get('status')}' to '{new_status}'. Ticket requires agent follow-up and re-submission before approval."
         )
 
-    # Spec L41 & L5: Payout legitimacy check - require clear operational reason before approval
+    # Spec L41 & L5 & L30: Payout legitimacy check - require clear operational reason before approval
     if clean_new_status == "approved":
         amt_str = str(target.get("refund_amount") or target.get("amount") or "0.0")
         refund_amt, _ = extract_amount(amt_str)
-        has_reason = bool(str(target.get("reason") or "").strip())
-        existing_notes = str(target.get("notes") or "")
+        reason_str = str(target.get("reason") or "").strip().lower()
+        existing_notes = str(target.get("notes") or "").lower()
         if (
-            refund_amt > 0
-            and not has_reason
-            and "Needs operational justification" in existing_notes
+            not reason_str
+            or reason_str in ("no reason provided", "unknown", "none")
+            or ("needs operational justification" in existing_notes and not notes)
         ):
             raise ValueError(
                 f"Cannot approve ticket {ticket_id}: operational justification is required before payout approval."
+            )
+        if refund_amt == 0.0 and (
+            not notes
+            and (not existing_notes or existing_notes == "needs amount verification")
+        ):
+            raise ValueError(
+                f"Cannot approve ticket {ticket_id}: ticket with zero or unverified amount requires explicit verification notes before approval."
             )
 
     target["status"] = sanitize_cell(new_status)

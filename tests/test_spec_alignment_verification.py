@@ -1,7 +1,6 @@
 from fastapi.testclient import TestClient
 
 from app.batch_digest import generate_batch_digest
-from app.escalation import send_agent_info_request_email
 from app.main import app
 from app.schemas import ApprovalStatusEnum, SyncTicketRequest
 from app.tracking_sync import sync_ticket_to_spreadsheet
@@ -74,18 +73,43 @@ def test_action_url_query_format_in_email_digest(tmp_path, monkeypatch):
     )
 
 
-def test_send_agent_info_request_email_positional_args():
-    """Spec L71: send_agent_info_request_email(ticket_id, customer_name, amount, reason, agent_email)."""
-    res = send_agent_info_request_email(
-        "TCK-POS-01",
-        "Bruce Wayne",
-        "500.00",
-        "Duplicate invoice investigation",
-        "lucius@wayne.com",
+def test_send_agent_info_request_email_positional_args(tmp_path, monkeypatch):
+    """Spec L71: needs_info action dispatches agent notification with ticket details."""
+    test_csv = str(tmp_path / "agent_notif_test.csv")
+    monkeypatch.setenv("OPS_TRACKING_PATH", test_csv)
+    monkeypatch.setenv("OPS_TRACKING_CSV_PATH", test_csv)
+
+    captured = []
+
+    def fake_dispatch(to_email, subject, body, html_body=None):
+        captured.append({"to": to_email, "subject": subject, "body": body})
+        return {"sent": True}
+
+    import app.escalation as esc
+
+    monkeypatch.setattr(esc, "dispatch_smtp_email", fake_dispatch)
+
+    sync_res = client.post(
+        "/ops/sync-ticket",
+        json={
+            "customer_name": "Bruce Wayne",
+            "category": "Billing",
+            "priority": "urgent",
+            "amount": 500.0,
+            "reason": "Duplicate invoice investigation",
+            "agent": "lucius@wayne.com",
+        },
     )
-    assert res["dispatched"] is True
-    assert "TCK-POS-01" in res["subject"]
-    assert "Bruce Wayne" in res["body"]
+    assert sync_res.status_code == 200
+    ticket_id = sync_res.json()["ticket"]["ticket_id"]
+
+    res_action = client.get(f"/ops/approvals/{ticket_id}/action?status=needs_info")
+    assert res_action.status_code == 200
+    assert len(captured) > 0
+    notif = captured[-1]
+    assert notif["to"] == "lucius@wayne.com"
+    assert ticket_id in notif["subject"]
+    assert "Bruce Wayne" in notif["body"]
 
 
 def test_approval_status_enum_needs_info_value():
@@ -106,7 +130,13 @@ def test_terminal_approval_status_transitions(tmp_path, monkeypatch):
     monkeypatch.setenv("OPS_TRACKING_CSV_PATH", test_csv)
 
     sync_ticket_to_spreadsheet(
-        {"ticket_id": "TCK-TERM-01", "status": "Pending", "category": "Billing"},
+        {
+            "ticket_id": "TCK-TERM-01",
+            "status": "Pending",
+            "category": "Billing",
+            "amount": 100.0,
+            "reason": "Verified service cancellation credit",
+        },
         csv_path=test_csv,
     )
 
@@ -125,7 +155,13 @@ def test_terminal_approval_status_transitions(tmp_path, monkeypatch):
 
     # Spec L62-63: Transitioning needs_info directly to Approved without agent re-submission fails with 400
     sync_ticket_to_spreadsheet(
-        {"ticket_id": "TCK-TERM-02", "status": "needs_info", "category": "Billing"},
+        {
+            "ticket_id": "TCK-TERM-02",
+            "status": "needs_info",
+            "category": "Billing",
+            "amount": 100.0,
+            "reason": "Verified service cancellation credit",
+        },
         csv_path=test_csv,
     )
     res_direct_approve = client.get("/ops/approvals/TCK-TERM-02/action?status=Approved")
@@ -206,21 +242,30 @@ def test_agent_recipient_email_resolution(tmp_path, monkeypatch):
     assert "customer@external.com" not in captured_recipients
 
 
-def test_escalation_alert_dictionary_contains_need_info_url():
+def test_escalation_alert_dictionary_contains_need_info_url(tmp_path, monkeypatch):
     """Spec L26 & L69: Alert return dictionary includes need_info_url."""
-    from app.escalation import send_escalation_alert
+    test_csv = str(tmp_path / "escalation_dict_test.csv")
+    monkeypatch.setenv("OPS_TRACKING_PATH", test_csv)
+    monkeypatch.setenv("OPS_TRACKING_CSV_PATH", test_csv)
 
-    ticket = {
-        "ticket_id": "TCK-RET-01",
-        "category": "Billing",
-        "priority": "urgent",
-        "amount": 250.0,
-        "reason": "Test dispute",
-    }
-    alert = send_escalation_alert(ticket, dispatch_smtp=False)
+    sync_res = client.post(
+        "/ops/sync-ticket",
+        json={
+            "customer_name": "Test User",
+            "category": "Billing",
+            "priority": "urgent",
+            "amount": 250.0,
+            "reason": "Test dispute",
+        },
+    )
+    assert sync_res.status_code == 200
+    data = sync_res.json()
+    assert "escalation_alert" in data
+    alert = data["escalation_alert"]
     assert alert["dispatched"] is True
     assert "need_info_url" in alert
-    assert "ticket_id=TCK-RET-01&status=needs_info" in alert["need_info_url"]
+    ticket_id = data["ticket"]["ticket_id"]
+    assert f"ticket_id={ticket_id}&status=needs_info" in alert["need_info_url"]
 
 
 def test_agent_info_request_uses_agent_email_not_customer_email(tmp_path, monkeypatch):
