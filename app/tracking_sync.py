@@ -25,7 +25,25 @@ FIELDNAMES = [
     "notes",
 ]
 
-DEFAULT_CSV_PATH = os.path.join("data", "ops_tracking_sheet.csv")
+
+def get_ops_tracking_path() -> str:
+    """Resolve operational tracking CSV path from environment or default."""
+    return os.environ.get(
+        "OPS_TRACKING_PATH",
+        os.getenv(
+            "OPS_TRACKING_CSV_PATH", os.path.join("data", "ops_tracking_sheet.csv")
+        ),
+    )
+
+
+DEFAULT_CSV_PATH = get_ops_tracking_path()
+
+
+def check_storage_health(csv_path: str | None = None) -> None:
+    """Verify tracking spreadsheet storage can be read without lock contention."""
+    target_path = csv_path or get_ops_tracking_path()
+    _read_all(target_path)
+
 
 _REASON_KEYWORD_MAP: tuple[tuple[tuple[str, ...], str], ...] = (
     (

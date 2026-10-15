@@ -21,6 +21,12 @@ class PriorityEnum(str, Enum):
     LOW = "low"
 
 
+class ApprovalStatusEnum(str, Enum):
+    APPROVED = "Approved"
+    REJECTED = "Rejected"
+    PENDING = "Pending"
+
+
 class TriageRequest(BaseModel):
     """Incoming request for ticket triage."""
 

@@ -8,6 +8,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,11 +17,15 @@ from app.batch_digest import generate_batch_digest
 from app.escalation import send_escalation_alert
 from app.retrieval import KBRetriever
 from app.scheduler import start_daily_digest_scheduler
-from app.schemas import SyncTicketRequest, TriageRequest, TriageResponse
+from app.schemas import (
+    ApprovalStatusEnum,
+    SyncTicketRequest,
+    TriageRequest,
+    TriageResponse,
+)
 from app.tracking_sync import (
-    DEFAULT_CSV_PATH,
     SpreadsheetLockedError,
-    _read_all,
+    check_storage_health,
     get_pending_approvals,
     sanitize_cell,
     sync_ticket_to_spreadsheet,
@@ -97,6 +102,43 @@ def spreadsheet_locked_handler(
     )
 
 
+@app.exception_handler(RequestValidationError)
+def request_validation_error_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    errors = exc.errors()
+    messages = []
+    for err in errors:
+        loc = " -> ".join(str(item) for item in err.get("loc", []) if item != "body")
+        msg = err.get("msg", "Invalid value")
+        messages.append(f"{loc}: {msg}" if loc else msg)
+    detail_str = (
+        f"Input validation failed: {'; '.join(messages)}"
+        if messages
+        else "Input validation failed."
+    )
+    return JSONResponse(
+        status_code=422,
+        content={"detail": detail_str},
+    )
+
+
+@app.exception_handler(Exception)
+def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception(
+        "Unhandled internal exception on %s %s: %s",
+        request.method,
+        request.url.path,
+        exc,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Internal server error occurred. Please try again or contact support."
+        },
+    )
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -108,11 +150,6 @@ app.add_middleware(
 retriever = KBRetriever()
 
 
-def _check_storage_health() -> None:
-    """Verify tracking spreadsheet storage can be read."""
-    _read_all(DEFAULT_CSV_PATH)
-
-
 @app.get("/health")
 def health_check() -> JSONResponse:
     """System health check endpoint with subsystem diagnostics."""
@@ -121,7 +158,7 @@ def health_check() -> JSONResponse:
 
     # 1. Tracking sheet storage
     try:
-        _check_storage_health()
+        check_storage_health()
         checks["storage"] = "accessible"
     except (SpreadsheetLockedError, OSError, PermissionError) as e:
         is_healthy = False
@@ -149,6 +186,9 @@ def health_check() -> JSONResponse:
         content={
             "status": status_str,
             "version": "1.0.0",
+            "storage": checks["storage"],
+            "tickets_data": checks["tickets_data"],
+            "knowledge_base": checks["knowledge_base"],
             "checks": checks,
         },
     )
@@ -221,10 +261,13 @@ def ops_approval_action(ticket_id: str, status: str = Query(...)) -> HTMLRespons
             status_code=400,
             detail="Ticket ID cannot be empty or whitespace.",
         )
-    if status not in ("Approved", "Rejected"):
+    if status not in (
+        ApprovalStatusEnum.APPROVED.value,
+        ApprovalStatusEnum.REJECTED.value,
+    ):
         raise HTTPException(
             status_code=400,
-            detail="Invalid status. Status must be 'Approved' or 'Rejected'.",
+            detail=f"Invalid status. Status must be '{ApprovalStatusEnum.APPROVED.value}' or '{ApprovalStatusEnum.REJECTED.value}'.",
         )
     try:
         update_approval_status(clean_ticket_id, new_status=status)
