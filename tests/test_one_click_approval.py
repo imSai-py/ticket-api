@@ -101,3 +101,55 @@ def test_one_click_action_missing_ticket():
     res = client.get("/ops/approvals/TCK-DOES-NOT-EXIST/action?status=Approved")
     assert res.status_code == 404
     assert "not found" in res.text
+
+
+def test_one_click_need_more_info_action(tmp_path, monkeypatch):
+    test_csv = str(tmp_path / "need_more_info_action.csv")
+    monkeypatch.setenv("OPS_TRACKING_CSV_PATH", test_csv)
+
+    sync_ticket_to_spreadsheet(
+        {
+            "ticket_id": "TCK-ACT-103",
+            "customer_name": "Barry Allen",
+            "category": "Billing",
+            "priority": "urgent",
+            "amount": 250.0,
+            "reason": "Speed refund claim",
+            "agent": "Cisco",
+        },
+        csv_path=test_csv,
+    )
+
+    res = client.get("/ops/approvals/TCK-ACT-103/action?status=needs_info")
+    assert res.status_code == 200
+    assert "text/html" in res.headers["content-type"]
+    assert "Ticket TCK-ACT-103 marked as needing more info" in res.text
+    assert "You may close this tab" in res.text
+
+    # Excluded from pending queue
+    pending = get_pending_approvals(csv_path=test_csv)
+    assert len(pending) == 0
+
+
+def test_one_click_need_more_info_via_query_route(tmp_path, monkeypatch):
+    test_csv = str(tmp_path / "need_more_info_query.csv")
+    monkeypatch.setenv("OPS_TRACKING_CSV_PATH", test_csv)
+
+    sync_ticket_to_spreadsheet(
+        {
+            "ticket_id": "TCK-ACT-104",
+            "customer_name": "Iris West",
+            "category": "Billing",
+            "priority": "normal",
+            "amount": 120.0,
+            "reason": "Subscription check",
+            "agent": "Cisco",
+        },
+        csv_path=test_csv,
+    )
+
+    res = client.get(
+        "/ops/approvals/action?ticket_id=TCK-ACT-104&status=need_more_info"
+    )
+    assert res.status_code == 200
+    assert "Ticket TCK-ACT-104 marked as needing more info" in res.text

@@ -239,13 +239,27 @@ def send_agent_action_notification(
         or f"{str(assigned_to).lower()}@company.com"
     )
 
-    action_verb = "APPROVED" if action.lower() == "approved" else "REJECTED"
-    badge_color = "#16a34a" if action.lower() == "approved" else "#dc2626"
-    next_step = (
-        f"You are authorized to execute the refund of ${amount} to {customer}."
-        if action.lower() == "approved"
-        else f"Do not issue a refund. Please contact {customer} to communicate the rejection."
-    )
+    action_lower = action.lower()
+    if action_lower in ("approved", "approve"):
+        action_verb = "APPROVED"
+        badge_color = "#16a34a"
+        next_step = (
+            f"You are authorized to execute the refund of ${amount} to {customer}."
+        )
+    elif action_lower in (
+        "needs info",
+        "need info",
+        "need more info",
+        "needs more info",
+        "needs_info",
+    ):
+        action_verb = "MORE INFO REQUESTED"
+        badge_color = "#d97706"
+        next_step = f"Manager requires more information. Please contact {customer} to gather necessary verification details and update the ticket."
+    else:
+        action_verb = "REJECTED"
+        badge_color = "#dc2626"
+        next_step = f"Do not issue a refund. Please contact {customer} to communicate the rejection."
 
     subject = f"[DECISION: {action_verb}] Ticket {ticket_id} - {customer} (${amount})"
     body = (
