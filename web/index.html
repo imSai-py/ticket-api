@@ -2,60 +2,363 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Ticket overview</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Support Ticket Dashboard</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #ddd; }
-    .stat { display: inline-block; margin-right: 1.5rem; }
+    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1e293b; background: #fafafa; }
+    .card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1.25rem; margin-bottom: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    table { border-collapse: collapse; width: 100%; margin-top: 0.5rem; font-size: 0.95rem; }
+    th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #e2e8f0; }
+    th { background: #f8fafc; font-weight: 600; color: #475569; position: sticky; top: 0; }
+    tr:hover { background: #f8fafc; }
+    .stat-row { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+    .stat-card { flex: 1; min-width: 180px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 0.85rem 1rem; }
+    .stat-val { font-size: 1.5rem; font-weight: 700; color: #0f172a; }
+    .stat-lbl { font-size: 0.85rem; color: #64748b; font-weight: 500; }
+    .category-pills { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
+    .pill { display: inline-flex; align-items: center; gap: 0.35rem; padding: 4px 10px; border-radius: 9999px; background: #e2e8f0; font-size: 0.8rem; font-weight: 600; color: #334155; cursor: pointer; transition: all 0.15s ease; border: 1px solid transparent; }
+    .pill:hover, .pill.active { background: #2563eb; color: #ffffff; }
+    .toolbar { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
+    .input-ctrl, .select-ctrl { padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.9rem; background: #ffffff; }
+    .input-ctrl { flex: 1; min-width: 200px; }
+    .btn { padding: 6px 12px; border-radius: 6px; font-size: 0.9rem; font-weight: 600; cursor: pointer; border: 1px solid transparent; background: #2563eb; color: #ffffff; transition: background 0.15s ease; }
+    .btn:hover { background: #1d4ed8; }
+    .btn-secondary { background: #f1f5f9; color: #334155; border-color: #cbd5e1; }
+    .btn-secondary:hover { background: #e2e8f0; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
+    .badge-urgent { background: #fee2e2; color: #991b1b; }
+    .badge-high { background: #ffedd5; color: #9a3412; }
+    .badge-normal { background: #e0f2fe; color: #075985; }
+    .badge-low { background: #f1f5f9; color: #475569; }
+    .badge-closed, .badge-resolved { background: #dcfce7; color: #166534; }
+    .badge-open, .badge-pending, .badge-in_progress { background: #fef3c7; color: #92400e; }
+    .pagination { display: flex; justify-content: space-between; align-items: center; margin-top: 1rem; font-size: 0.9rem; color: #64748b; }
   </style>
 </head>
 <body>
   <nav style="background: #f1f5f9; padding: 0.6rem 1rem; border-radius: 8px; margin-bottom: 1.5rem; display: flex; gap: 1rem; align-items: center; font-size: 0.95rem;">
-    <strong>Ticket Hub:</strong>
-    <a href="/triage-ui/" style="color: #2563eb; font-weight: 700; text-decoration: none;">🤖 AI Triage Screen</a>
+    <strong>Support Hub:</strong>
+    <a href="/triage-ui/" style="color: #2563eb; font-weight: 700; text-decoration: none;">🤖 AI Ticket Assistant</a>
     <span>|</span>
-    <a href="/" style="color: #475569; font-weight: 600; text-decoration: none;">📊 Ticket Overview</a>
+    <a href="/" style="color: #475569; font-weight: 600; text-decoration: none;">📊 Ticket Dashboard</a>
     <span>|</span>
-    <a href="/docs" target="_blank" rel="noreferrer" style="color: #475569; text-decoration: none;">📖 API Docs (Swagger)</a>
+    <a href="/docs" target="_blank" rel="noreferrer" style="color: #475569; text-decoration: none;">📖 API Documentation (Swagger)</a>
+    <span>|</span>
+    <a href="/redoc" target="_blank" rel="noreferrer" style="color: #475569; text-decoration: none;">📋 ReDoc Reference</a>
   </nav>
 
   <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
     <div>
-      <h3 style="margin: 0 0 0.25rem 0; color: #1e40af;">🚀 AI Support Ticket Triage is Live!</h3>
-      <p style="margin: 0; color: #1e3a8a; font-size: 0.9rem;">Automated classification, grounded replies from KB articles, and priority detection.</p>
+      <h3 style="margin: 0 0 0.25rem 0; color: #1e40af;">🚀 Smart Ticket Assistant is Ready!</h3>
+      <p style="margin: 0; color: #1e3a8a; font-size: 0.9rem;">Automated ticket categorization, urgency scoring, and recommended replies from help guides.</p>
     </div>
-    <a href="/triage-ui/" style="display: inline-block; background: #2563eb; color: #ffffff; padding: 0.5rem 1rem; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 0.9rem;">Open AI Triage Screen →</a>
+    <a href="/triage-ui/" style="display: inline-block; background: #2563eb; color: #ffffff; padding: 0.5rem 1rem; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 0.9rem;">Open Ticket Assistant →</a>
   </div>
 
-  <h1>Ticket overview</h1>
-  <div id="summary">Loading summary...</div>
-  <h2>Latest tickets</h2>
-  <table>
-    <thead><tr><th>ID</th><th>Created</th><th>Category</th><th>Priority</th><th>Status</th></tr></thead>
-    <tbody id="rows"></tbody>
-  </table>
+  <div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+      <h1 style="margin: 0; font-size: 1.6rem;">Support Ticket Dashboard</h1>
+      <div style="display: flex; gap: 0.5rem; align-items: center;">
+        <select id="datasetSelect" class="select-ctrl" onchange="switchDataset()" title="Switch ticket dataset">
+          <option value="helpdesk" selected>📁 Client Export (120 Tickets)</option>
+          <option value="sample">📁 Sample Dataset (60 Tickets)</option>
+        </select>
+        <button class="btn btn-secondary" onclick="loadDashboard()">🔄 Refresh Live Data</button>
+      </div>
+    </div>
+
+    <div class="stat-row">
+      <div class="stat-card">
+        <div class="stat-val" id="totalTickets">—</div>
+        <div class="stat-lbl">Total Support Tickets</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val" id="avgResolution">—</div>
+        <div class="stat-lbl">Avg. Resolution Time (Hours)</div>
+      </div>
+    </div>
+
+    <div>
+      <div style="font-size: 0.85rem; font-weight: 600; color: #64748b; margin-bottom: 0.25rem;">Filter by Category:</div>
+      <div class="category-pills" id="categoryPills"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="toolbar">
+      <input type="text" id="searchInput" class="input-ctrl" placeholder="🔍 Search by ID, Subject, Customer, Agent..." oninput="handleSearch()">
+      
+      <select id="categorySelect" class="select-ctrl" onchange="handleCategoryChange()">
+        <option value="all">All Categories</option>
+      </select>
+
+      <select id="prioritySelect" class="select-ctrl" onchange="handlePriorityChange()">
+        <option value="all">All Urgency Levels</option>
+        <option value="urgent">Urgent</option>
+        <option value="high">High</option>
+        <option value="normal">Normal</option>
+        <option value="low">Low</option>
+      </select>
+
+      <select id="pageSizeSelect" class="select-ctrl" onchange="handlePageSizeChange()">
+        <option value="10">10 per page</option>
+        <option value="25" selected>25 per page</option>
+        <option value="50">50 per page</option>
+        <option value="100">100 per page</option>
+      </select>
+
+      <button class="btn btn-secondary" onclick="resetFilters()">Reset Filters</button>
+    </div>
+
+    <div style="overflow-x: auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>Ticket ID</th>
+            <th>Date Created</th>
+            <th>Category</th>
+            <th>Urgency</th>
+            <th>Status</th>
+            <th>Support Agent</th>
+          </tr>
+        </thead>
+        <tbody id="rows">
+          <tr><td colspan="6" style="text-align: center; color: #64748b; padding: 2rem;">Loading tickets...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="pagination">
+      <div id="pageInfo">Showing 0 tickets</div>
+      <div style="display: flex; gap: 0.5rem;">
+        <button id="prevBtn" class="btn btn-secondary" onclick="prevPage()" disabled>← Previous</button>
+        <button id="nextBtn" class="btn btn-secondary" onclick="nextPage()" disabled>Next →</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="border-left: 4px solid #2563eb;">
+    <h3 style="margin: 0 0 0.5rem 0; color: #0f172a;">📖 Live API Documentation & Diagnostics</h3>
+    <p style="margin: 0 0 0.75rem 0; font-size: 0.9rem; color: #475569;">
+      Direct interactive access to all system APIs, schemas, and live diagnostic checks:
+    </p>
+    <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
+      <a href="/docs" target="_blank" rel="noreferrer" class="btn">Open Swagger UI Interactive Console ↗</a>
+      <a href="/redoc" target="_blank" rel="noreferrer" class="btn btn-secondary">Open ReDoc Documentation ↗</a>
+      <button class="btn btn-secondary" onclick="testHealth()">Test System Health (/health)</button>
+    </div>
+    <div id="healthResult" style="margin-top: 0.75rem; font-size: 0.85rem; display: none;"></div>
+  </div>
+
   <script>
+    let allTickets = [];
+    let filteredTickets = [];
+    let currentPage = 1;
+    let pageSize = 25;
+    let selectedCategory = "all";
+    let selectedPriority = "all";
+    let searchQuery = "";
+
     function showDate(text) {
-      if (!text) return "";
+      if (!text) return "—";
       if (/^\d{2}\/\d{2}\/\d{4}/.test(text)) {
         return text;
       }
       const d = new Date(text.replace(" ", "T"));
-      return d.getDate() + "/" + (d.getMonth() + 1) + "/" + d.getFullYear();
+      if (isNaN(d.getTime())) return text;
+      return String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + "/" + d.getFullYear();
     }
 
-    async function load() {
-      const summary = await (await fetch("/summary")).json();
-      document.getElementById("summary").innerHTML =
-        '<span class="stat"><b>' + summary.total + '</b> tickets</span>' +
-        '<span class="stat"><b>' + summary.average_resolution_hours + '</b> hours average resolution</span>';
-      const tickets = await (await fetch("/tickets?page=1&size=10")).json();
-      document.getElementById("rows").innerHTML = tickets.map(t =>
-        "<tr><td>" + t.ticket_id + "</td><td>" + showDate(t.created_at) + "</td><td>" +
-        t.category + "</td><td>" + t.priority + "</td><td>" + t.status + "</td></tr>").join("");
+    function renderCategoryPills(byCat) {
+      const pillsContainer = document.getElementById("categoryPills");
+      const categorySelect = document.getElementById("categorySelect");
+      
+      let pillsHtml = '<span class="pill ' + (selectedCategory === "all" ? "active" : "") + '" onclick="setCategory(\'all\')">All (' + allTickets.length + ')</span>';
+      let selectHtml = '<option value="all">All Categories</option>';
+
+      for (const [cat, count] of Object.entries(byCat)) {
+        const isActive = selectedCategory.toLowerCase() === cat.toLowerCase();
+        pillsHtml += '<span class="pill ' + (isActive ? "active" : "") + '" onclick="setCategory(\'' + cat + '\')">' + cat + ' (' + count + ')</span>';
+        selectHtml += '<option value="' + cat + '" ' + (isActive ? "selected" : "") + '>' + cat + ' (' + count + ')</option>';
+      }
+
+      pillsContainer.innerHTML = pillsHtml;
+      categorySelect.innerHTML = selectHtml;
     }
-    load();
+
+    function applyFilters() {
+      filteredTickets = allTickets.filter(t => {
+        if (selectedCategory !== "all" && (t.category || "").toLowerCase() !== selectedCategory.toLowerCase()) {
+          return false;
+        }
+        if (selectedPriority !== "all" && (t.priority || "").toLowerCase() !== selectedPriority.toLowerCase()) {
+          return false;
+        }
+        if (searchQuery) {
+          const q = searchQuery.toLowerCase();
+          const matchId = (t.ticket_id || "").toLowerCase().includes(q);
+          const matchSub = (t.subject || "").toLowerCase().includes(q);
+          const matchCat = (t.category || "").toLowerCase().includes(q);
+          const matchAgent = (t.assigned_to || t.agent || "").toLowerCase().includes(q);
+          const matchEmail = (t.customer_email || t.requester_email || "").toLowerCase().includes(q);
+          if (!matchId && !matchSub && !matchCat && !matchAgent && !matchEmail) {
+            return false;
+          }
+        }
+        return true;
+      });
+
+      currentPage = 1;
+      renderTable();
+    }
+
+    function renderTable() {
+      const tbody = document.getElementById("rows");
+      const total = filteredTickets.length;
+      const totalPages = Math.ceil(total / pageSize) || 1;
+      
+      if (currentPage > totalPages) currentPage = totalPages;
+      if (currentPage < 1) currentPage = 1;
+
+      const start = (currentPage - 1) * pageSize;
+      const end = Math.min(start + pageSize, total);
+      const pageRows = filteredTickets.slice(start, end);
+
+      if (pageRows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #64748b; padding: 2rem;">No matching tickets found.</td></tr>';
+      } else {
+        tbody.innerHTML = pageRows.map(t => {
+          const pri = (t.priority || "normal").toLowerCase();
+          const priClass = 'badge badge-' + pri;
+          const status = (t.status || "open").toLowerCase();
+          const statusClass = 'badge badge-' + status.replace(/\s+/g, '_');
+          const agent = t.assigned_to || t.agent || "Unassigned";
+
+          return '<tr>' +
+            '<td><strong>' + (t.ticket_id || "—") + '</strong></td>' +
+            '<td>' + showDate(t.created_at) + '</td>' +
+            '<td>' + (t.category || "—") + '</td>' +
+            '<td><span class="' + priClass + '">' + pri + '</span></td>' +
+            '<td><span class="' + statusClass + '">' + (t.status || "Open") + '</span></td>' +
+            '<td>' + agent + '</td>' +
+          '</tr>';
+        }).join("");
+      }
+
+      document.getElementById("pageInfo").innerText = total === 0 
+        ? "No tickets" 
+        : "Showing " + (start + 1) + " to " + end + " of " + total + " tickets (Page " + currentPage + " of " + totalPages + ")";
+
+      document.getElementById("prevBtn").disabled = currentPage <= 1;
+      document.getElementById("nextBtn").disabled = currentPage >= totalPages;
+    }
+
+    function setCategory(cat) {
+      selectedCategory = cat;
+      document.getElementById("categorySelect").value = cat;
+      const pills = document.querySelectorAll(".pill");
+      pills.forEach(p => {
+        if (p.textContent.startsWith(cat === "all" ? "All" : cat)) {
+          p.classList.add("active");
+        } else {
+          p.classList.remove("active");
+        }
+      });
+      applyFilters();
+    }
+
+    function handleCategoryChange() {
+      setCategory(document.getElementById("categorySelect").value);
+    }
+
+    function handlePriorityChange() {
+      selectedPriority = document.getElementById("prioritySelect").value;
+      applyFilters();
+    }
+
+    function handleSearch() {
+      searchQuery = document.getElementById("searchInput").value.trim();
+      applyFilters();
+    }
+
+    function handlePageSizeChange() {
+      pageSize = parseInt(document.getElementById("pageSizeSelect").value, 10);
+      currentPage = 1;
+      renderTable();
+    }
+
+    function prevPage() {
+      if (currentPage > 1) {
+        currentPage--;
+        renderTable();
+      }
+    }
+
+    function nextPage() {
+      const totalPages = Math.ceil(filteredTickets.length / pageSize);
+      if (currentPage < totalPages) {
+        currentPage++;
+        renderTable();
+      }
+    }
+
+    function resetFilters() {
+      selectedCategory = "all";
+      selectedPriority = "all";
+      searchQuery = "";
+      document.getElementById("searchInput").value = "";
+      document.getElementById("categorySelect").value = "all";
+      document.getElementById("prioritySelect").value = "all";
+      document.getElementById("pageSizeSelect").value = "25";
+      pageSize = 25;
+      setCategory("all");
+    }
+
+    let currentSource = "helpdesk";
+
+    async function switchDataset() {
+      currentSource = document.getElementById("datasetSelect").value;
+      selectedCategory = "all";
+      selectedPriority = "all";
+      searchQuery = "";
+      document.getElementById("searchInput").value = "";
+      await loadDashboard();
+    }
+
+    async function loadDashboard() {
+      try {
+        const summaryResp = await fetch("/summary?source=" + currentSource);
+        if (summaryResp.ok) {
+          const summary = await summaryResp.json();
+          document.getElementById("totalTickets").innerText = summary.total;
+          document.getElementById("avgResolution").innerText = (summary.average_resolution_hours || 0.0).toFixed(1);
+          renderCategoryPills(summary.by_category || {});
+        }
+
+        const ticketsResp = await fetch("/tickets?page=1&size=500&source=" + currentSource);
+        if (ticketsResp.ok) {
+          allTickets = await ticketsResp.json();
+          applyFilters();
+        }
+      } catch (err) {
+        console.error("Failed to load dashboard data:", err);
+      }
+    }
+
+    async function testHealth() {
+      const el = document.getElementById("healthResult");
+      el.style.display = "block";
+      el.innerHTML = "Checking system health...";
+      try {
+        const resp = await fetch("/health");
+        const data = await resp.json();
+        el.innerHTML = '<span style="color: #166534; font-weight: 600;">✓ System Health: ' + data.status.toUpperCase() + ' (v' + data.version + ')</span> — Storage: <code>' + data.storage + '</code>, Tickets Data: <code>' + data.tickets_data + '</code>, Knowledge Base: <code>' + data.knowledge_base + '</code>';
+      } catch (e) {
+        el.innerHTML = '<span style="color: #991b1b; font-weight: 600;">✗ Health check failed: ' + e.message + '</span>';
+      }
+    }
+
+    loadDashboard();
   </script>
 </body>
 </html>

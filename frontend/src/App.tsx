@@ -20,7 +20,7 @@ interface CustomImportMetaEnv {
 export function App() {
   const [ticketId, setTicketId] = useState("");
   const [customerName, setCustomerName] = useState("");
-  const [agentName, setAgentName] = useState("Mara");
+  const [agentName, setAgentName] = useState("");
   const [reason, setReason] = useState("");
   const [subject, setSubject] = useState("");
   const [text, setText] = useState("");
@@ -61,7 +61,7 @@ export function App() {
         body: JSON.stringify({
           ticket_id: ticketId.trim(),
           customer_name: customerName.trim(),
-          agent: agentName.trim() || "Mara",
+          agent: agentName.trim(),
           reason: reason.trim(),
           subject: subject.trim(),
           text: text.trim(),
@@ -110,21 +110,21 @@ export function App() {
           fontSize: "0.95rem",
         }}
       >
-        <strong>Ticket Hub:</strong>
+        <strong>Support Hub:</strong>
         <a href="/triage-ui/" style={{ color: "#2563eb", fontWeight: 700, textDecoration: "none" }}>
-          🤖 AI Triage Screen
+          🤖 AI Ticket Assistant
         </a>
         <span>|</span>
-        <a href="/" style={{ color: "#475569", fontWeight: 600, textDecoration: "none" }}>
-          📊 Ticket Overview
+        <a href={apiBaseUrl ? `${apiBaseUrl}/` : "/"} style={{ color: "#475569", fontWeight: 600, textDecoration: "none" }}>
+          📊 Ticket Dashboard
         </a>
         <span>|</span>
-        <a href="/docs" target="_blank" rel="noreferrer" style={{ color: "#475569", textDecoration: "none" }}>
-          📖 API Docs (Swagger)
+        <a href={apiBaseUrl ? `${apiBaseUrl}/docs` : "/docs"} target="_blank" rel="noreferrer" style={{ color: "#475569", textDecoration: "none" }}>
+          📖 API Documentation
         </a>
       </nav>
-      <h1>AI Support Ticket Triage</h1>
-      <p>Submit incoming customer tickets for automated classification and grounded suggested replies.</p>
+      <h1>AI Support Ticket Assistant</h1>
+      <p>Review customer support tickets with automated category detection, urgency levels, and recommended customer replies.</p>
 
       <div className="card">
         <form onSubmit={handleSubmit} noValidate>
@@ -142,12 +142,12 @@ export function App() {
           </div>
 
           <div className="form-group">
-            <label htmlFor="ticket-id">Ticket ID (Optional)</label>
+            <label htmlFor="ticket-id">Ticket ID</label>
             <input
               id="ticket-id"
               type="text"
               aria-label="Ticket ID"
-              placeholder="e.g. TCK-1020 (auto-generated if empty)"
+              placeholder="e.g. TCK-1020"
               value={ticketId}
               onChange={(e) => setTicketId(e.target.value)}
             />
@@ -159,7 +159,7 @@ export function App() {
               id="agent"
               type="text"
               aria-label="Support Agent"
-              placeholder="e.g. Mara"
+              placeholder="e.g. Alex Morgan"
               value={agentName}
               onChange={(e) => setAgentName(e.target.value)}
             />
@@ -200,27 +200,27 @@ export function App() {
             />
           </div>
 
-          <button type="submit" disabled={loading}>
-            {loading ? "Triaging Ticket..." : "Triage Ticket"}
+          <button type="submit" disabled={loading} aria-label="Triage Ticket">
+            {loading ? "Analyzing Ticket Details..." : "Review Ticket with AI"}
           </button>
         </form>
 
         {loading && (
           <div className="loading-spinner" role="status">
-            Analyzing ticket and consulting knowledge base...
+            Reading ticket details and finding the best recommended solution...
           </div>
         )}
       </div>
 
       {error && (
         <div className="alert-error" role="alert">
-          <strong>Error:</strong> {error}
+          <strong>Notice:</strong> {error}
         </div>
       )}
 
       {result && (
         <div className="card" data-testid="triage-result">
-          <h2>Triage Recommendation</h2>
+          <h2>Recommended Response & Ticket Summary</h2>
           <div style={{ marginBottom: "1rem" }}>
             <span className="badge badge-category" data-testid="result-category">
               Category: {result.category}
@@ -231,7 +231,7 @@ export function App() {
           </div>
 
           <div>
-            <h3>Suggested Reply:</h3>
+            <h3>Recommended Customer Reply:</h3>
             <blockquote
               data-testid="result-reply"
               style={{
@@ -248,7 +248,7 @@ export function App() {
           </div>
 
           <div>
-            <h3>Referenced Knowledge Articles:</h3>
+            <h3>Referenced Help Guides & Solutions:</h3>
             {result.article_ids && result.article_ids.length > 0 ? (
               <ul data-testid="result-sources">
                 {result.article_ids.map((id) => (
@@ -258,7 +258,7 @@ export function App() {
                 ))}
               </ul>
             ) : (
-              <p data-testid="no-sources">No specific knowledge base articles referenced (escalated for human follow-up).</p>
+              <p data-testid="no-sources">No specific help guide referenced (flagged for manual team review).</p>
             )}
           </div>
         </div>

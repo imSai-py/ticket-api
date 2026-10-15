@@ -2,6 +2,7 @@ import asyncio
 import csv
 import logging
 import os
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -39,11 +40,19 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
+HELPDESK_EXPORT_PATH = (
+    Path(__file__).resolve().parent.parent / "data" / "helpdesk_export.csv"
+)
 DEFAULT_DATA_PATH = (
     Path(__file__).resolve().parent.parent / "data" / "tickets_sample.csv"
 )
 DATA_PATH_ENV = os.environ.get("TICKETS_DATA_PATH")
-DATA_PATH = Path(DATA_PATH_ENV).resolve() if DATA_PATH_ENV else DEFAULT_DATA_PATH
+if DATA_PATH_ENV:
+    DATA_PATH = Path(DATA_PATH_ENV).resolve()
+elif HELPDESK_EXPORT_PATH.exists() and "pytest" not in sys.modules:
+    DATA_PATH = HELPDESK_EXPORT_PATH
+else:
+    DATA_PATH = DEFAULT_DATA_PATH
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
@@ -244,8 +253,9 @@ def to_public_ticket_dict(ticket: dict[str, Any]) -> dict[str, Any]:
     if labels:
         public_dict["labels"] = labels
 
-    if ticket.get("assigned_to"):
-        public_dict["assigned_to"] = ticket.get("assigned_to")
+    agent_val = ticket.get("assigned_to") or ticket.get("agent")
+    if agent_val:
+        public_dict["assigned_to"] = agent_val
 
     if ticket.get("refund_amount") is not None and ticket.get("refund_amount") != "":
         amt = normalize_currency_amount(ticket.get("refund_amount"))
@@ -254,10 +264,46 @@ def to_public_ticket_dict(ticket: dict[str, Any]) -> dict[str, Any]:
     return public_dict
 
 
+def get_dataset_tickets(source: str | None = None) -> list[dict[str, Any]]:
+    """Retrieve ticket dataset with optional source selector."""
+    if source == "helpdesk" and HELPDESK_EXPORT_PATH.exists():
+        return load_tickets(HELPDESK_EXPORT_PATH)
+    if source == "sample" and DEFAULT_DATA_PATH.exists():
+        return load_tickets(DEFAULT_DATA_PATH)
+    return TICKETS
+
+
 @app.get("/tickets")
-def list_tickets(page: int = Query(1, ge=1), size: int = Query(10, ge=1, le=100)):
+def list_tickets(
+    page: int = Query(1, ge=1),
+    size: int = Query(10, ge=1, le=100),
+    category: str | None = Query(None),
+    priority: str | None = Query(None),
+    search: str | None = Query(None),
+    source: str | None = Query(None),
+):
+    filtered = get_dataset_tickets(source)
+    if category and category.lower() != "all":
+        filtered = [
+            t for t in filtered if t.get("category", "").lower() == category.lower()
+        ]
+    if priority and priority.lower() != "all":
+        filtered = [
+            t for t in filtered if t.get("priority", "").lower() == priority.lower()
+        ]
+    if search:
+        q = search.lower().strip()
+        filtered = [
+            t
+            for t in filtered
+            if q in t.get("ticket_id", "").lower()
+            or q in t.get("category", "").lower()
+            or q in t.get("priority", "").lower()
+            or q in (t.get("assigned_to") or t.get("agent") or "").lower()
+            or q in (t.get("customer_email") or "").lower()
+        ]
     start = (page - 1) * size
-    return [to_public_ticket_dict(t) for t in TICKETS[start : start + size]]
+    return [to_public_ticket_dict(t) for t in filtered[start : start + size]]
 
 
 @app.get("/tickets/{ticket_id}")
@@ -269,10 +315,11 @@ def get_ticket(ticket_id: str):
 
 
 @app.get("/summary")
-def summary():
-    metrics, _ = compute_metrics(TICKETS)
+def summary(source: str | None = Query(None)):
+    dataset = get_dataset_tickets(source)
+    metrics, _ = compute_metrics(dataset)
     return {
-        "total": len(TICKETS),
+        "total": len(dataset),
         "by_category": dict(metrics.category_counts),
         "average_resolution_hours": metrics.overall_average_hours(),
         "category_averages": metrics.category_average_hours(),
@@ -284,6 +331,34 @@ def summary():
 def ops_sync_ticket(req: SyncTicketRequest) -> dict[str, Any]:
     row = sync_ticket_to_spreadsheet(req.model_dump())
     alert = send_escalation_alert(row)
+    existing = next(
+        (t for t in TICKETS if t.get("ticket_id") == row["ticket_id"]), None
+    )
+    if existing:
+        existing.update(
+            {
+                "category": row["category"],
+                "priority": row["priority"],
+                "status": row["status"],
+                "agent": row["agent"],
+                "assigned_to": row["agent"],
+            }
+        )
+    else:
+        TICKETS.insert(
+            0,
+            {
+                "ticket_id": row["ticket_id"],
+                "created_at": row["created_at"],
+                "created": parse_iso_timestamp(row["created_at"]),
+                "category": row["category"],
+                "priority": row["priority"],
+                "status": row["status"],
+                "agent": row["agent"],
+                "assigned_to": row["agent"],
+                "reason": row["reason"],
+            },
+        )
     return {"ticket": row, "escalation_alert": alert}
 
 
@@ -343,6 +418,34 @@ def triage(req: TriageRequest) -> TriageResponse:
                 "agent": req.agent,
             }
         )
+        existing = next(
+            (t for t in TICKETS if t.get("ticket_id") == row["ticket_id"]), None
+        )
+        if existing:
+            existing.update(
+                {
+                    "category": row["category"],
+                    "priority": row["priority"],
+                    "status": row["status"],
+                    "agent": row["agent"],
+                    "assigned_to": row["agent"],
+                }
+            )
+        else:
+            TICKETS.insert(
+                0,
+                {
+                    "ticket_id": row["ticket_id"],
+                    "created_at": row["created_at"],
+                    "created": parse_iso_timestamp(row["created_at"]),
+                    "category": row["category"],
+                    "priority": row["priority"],
+                    "status": row["status"],
+                    "agent": row["agent"],
+                    "assigned_to": row["agent"],
+                    "reason": row["reason"],
+                },
+            )
         if str(res.priority) == "urgent":
             send_escalation_alert(row)
     return res
