@@ -64,15 +64,26 @@ def load_tickets(path: Path | str) -> list[dict[str, Any]]:
             row["created"] = parse_iso_timestamp(row.get("created_at"))
             row["resolved"] = parse_iso_timestamp(row.get("resolved_at"))
 
-            if "labels" in row and "tags" not in row:
-                row["tags"] = row["labels"]
-            elif "tags" in row and "labels" not in row:
-                row["labels"] = row["tags"]
+            for alias_a, alias_b in (
+                ("labels", "tags"),
+                ("customer_email", "requester_email"),
+            ):
+                if alias_a in row and alias_b not in row:
+                    row[alias_b] = row[alias_a]
+                elif alias_b in row and alias_a not in row:
+                    row[alias_a] = row[alias_b]
 
-            if "customer_email" in row and "requester_email" not in row:
-                row["requester_email"] = row["customer_email"]
-            elif "requester_email" in row and "customer_email" not in row:
-                row["customer_email"] = row["requester_email"]
+            if "refund_amount" in row:
+                raw_amt = (
+                    str(row.get("refund_amount") or "")
+                    .replace("$", "")
+                    .replace(",", "")
+                    .strip()
+                )
+                try:
+                    row["refund_amount"] = float(raw_amt) if raw_amt else 0.0
+                except ValueError:
+                    row["refund_amount"] = 0.0
 
             if "resolved_at" not in row:
                 row["resolved_at"] = None
@@ -243,7 +254,16 @@ def to_public_ticket_dict(ticket: dict[str, Any]) -> dict[str, Any]:
         public_dict["assigned_to"] = ticket.get("assigned_to")
 
     if ticket.get("refund_amount") is not None and ticket.get("refund_amount") != "":
-        public_dict["refund_amount"] = ticket.get("refund_amount")
+        try:
+            amt = float(
+                str(ticket.get("refund_amount"))
+                .replace("$", "")
+                .replace(",", "")
+                .strip()
+            )
+            public_dict["refund_amount"] = f"{amt:.2f}"
+        except ValueError:
+            public_dict["refund_amount"] = "0.00"
 
     return public_dict
 

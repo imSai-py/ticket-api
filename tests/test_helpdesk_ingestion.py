@@ -30,7 +30,7 @@ def test_load_tickets_ingests_helpdesk_export_without_key_error():
     assert first["labels"] == "escalated"
     assert first["tags"] == "escalated"
     assert first["assigned_to"] == "riya"
-    assert first["refund_amount"] == "480"
+    assert first["refund_amount"] == 480.0
     assert first["resolved_at"] is None
     assert first["created"] is not None
     assert first["resolved"] is None
@@ -67,7 +67,7 @@ def test_api_tickets_endpoints_with_helpdesk_export(monkeypatch):
     assert first["customer_email"] == "omar.ali@example.com"
     assert first["labels"] == "escalated"
     assert first["assigned_to"] == "riya"
-    assert first["refund_amount"] == "480"
+    assert first["refund_amount"] == "480.00"
 
     # 2. Get specific ticket endpoint
     resp_single = client.get("/tickets/TCK-5039")
@@ -78,4 +78,4 @@ def test_api_tickets_endpoints_with_helpdesk_export(monkeypatch):
     assert single_data["resolved_at"] is None
     assert single_data["customer_email"] == "hana.ito@example.com"
     assert single_data["labels"] == "ESCALATED"
-    assert single_data["refund_amount"] == "45"
+    assert single_data["refund_amount"] == "45.00"

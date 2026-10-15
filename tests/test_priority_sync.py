@@ -24,6 +24,7 @@ def test_label_detection_helpers():
     assert check_escalation_in_labels("ESCALATED") is True
     assert check_escalation_in_labels("Escalated;vip") is True
     assert check_escalation_in_labels("vip") is False
+    assert check_escalation_in_labels("de-escalated") is False
     assert check_escalation_in_labels("") is False
     assert check_escalation_in_labels(None) is False
 
@@ -31,6 +32,7 @@ def test_label_detection_helpers():
     assert check_vip_in_labels("VIP") is True
     assert check_vip_in_labels("Escalated;vip") is True
     assert check_vip_in_labels("escalated") is False
+    assert check_vip_in_labels("vipassana") is False
     assert check_vip_in_labels("") is False
     assert check_vip_in_labels(None) is False
 

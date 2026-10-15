@@ -206,22 +206,24 @@ def _write_all(csv_path: str, rows: list[dict[str, Any]]) -> None:
         ) from err
 
 
+def parse_label_tokens(labels_val: Any) -> set[str]:
+    """Parse labels string into a normalized set of discrete lower-case tokens."""
+    if not labels_val:
+        return set()
+    clean = str(labels_val).strip().lower()
+    return {t.strip() for t in re.split(r"[,;|\s]+", clean) if t.strip()}
+
+
 def check_escalation_in_labels(labels_val: Any) -> bool:
     """Check if labels contain escalated or esc tokens."""
-    if not labels_val:
-        return False
-    clean = str(labels_val).strip().lower()
-    tokens = [t.strip() for t in re.split(r"[,;|\s]+", clean) if t.strip()]
-    return "escalated" in clean or any(t in ("escalated", "esc") for t in tokens)
+    tokens = parse_label_tokens(labels_val)
+    return bool(tokens & {"escalated", "esc"})
 
 
 def check_vip_in_labels(labels_val: Any) -> bool:
     """Check if labels contain vip token."""
-    if not labels_val:
-        return False
-    clean = str(labels_val).strip().lower()
-    tokens = [t.strip() for t in re.split(r"[,;|\s]+", clean) if t.strip()]
-    return "vip" in tokens or "vip" in clean
+    tokens = parse_label_tokens(labels_val)
+    return "vip" in tokens
 
 
 def resolve_ticket_priority_and_escalation(
@@ -343,6 +345,7 @@ def sync_ticket_to_spreadsheet(
     else:
         customer_name = raw_customer_name
 
+    # Determine amount & verification note (checking subject, reason, and text)
     refund_amt = ticket.get("refund_amount")
     provided_amount = ticket.get("amount")
     text_content = f"{ticket.get('subject', '')} {ticket.get('reason', '')} {ticket.get('text', '')}".strip()
@@ -368,6 +371,7 @@ def sync_ticket_to_spreadsheet(
         (i for i, r in enumerate(rows) if r["ticket_id"] == ticket_id), None
     )
 
+    # If ticket already exists and status was not explicitly passed in payload, retain existing status
     if existing_idx is not None:
         created_time = rows[existing_idx].get("created_at") or now_local
         updated_time = rows[existing_idx].get("updated_at") or ""
@@ -400,6 +404,7 @@ def sync_ticket_to_spreadsheet(
 
     notes_val = "; ".join(notes_parts)
 
+    # Determine reason: explicit reason or extracted operational reason
     provided_reason = ticket.get("reason", "")
     if provided_reason:
         reason_val = provided_reason
