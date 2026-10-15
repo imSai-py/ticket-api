@@ -352,17 +352,9 @@ TCK-5043,2026-10-05 14:02,resolved,normal,Technical,riya,ava.stone@example.com,,
         }}
       >
         <strong>Support Hub:</strong>
-        <a href="/triage-ui/" style={{ color: "#2563eb", fontWeight: 700, textDecoration: "none" }}>
+        <span style={{ color: "#2563eb", fontWeight: 700 }}>
           🤖 AI Ticket Assistant
-        </a>
-        <span>|</span>
-        <a href={apiBaseUrl ? `${apiBaseUrl}/` : "/"} style={{ color: "#475569", fontWeight: 600, textDecoration: "none" }}>
-          📊 Ticket Dashboard
-        </a>
-        <span>|</span>
-        <a href={apiBaseUrl ? `${apiBaseUrl}/docs` : "/docs"} target="_blank" rel="noreferrer" style={{ color: "#475569", textDecoration: "none" }}>
-          📖 API Documentation
-        </a>
+        </span>
       </nav>
       <h1>AI Support Ticket Assistant</h1>
       <p>Review customer support tickets with automated category detection, urgency levels, and recommended customer replies.</p>

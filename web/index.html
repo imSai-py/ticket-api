@@ -39,12 +39,6 @@
   <nav style="background: #f1f5f9; padding: 0.6rem 1rem; border-radius: 8px; margin-bottom: 1.5rem; display: flex; gap: 1rem; align-items: center; font-size: 0.95rem;">
     <strong>Support Hub:</strong>
     <a href="/triage-ui/" style="color: #2563eb; font-weight: 700; text-decoration: none;">🤖 AI Ticket Assistant</a>
-    <span>|</span>
-    <a href="/" style="color: #475569; font-weight: 600; text-decoration: none;">📊 Ticket Dashboard</a>
-    <span>|</span>
-    <a href="/docs" target="_blank" rel="noreferrer" style="color: #475569; text-decoration: none;">📖 API Documentation (Swagger)</a>
-    <span>|</span>
-    <a href="/redoc" target="_blank" rel="noreferrer" style="color: #475569; text-decoration: none;">📋 ReDoc Reference</a>
   </nav>
 
   <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
@@ -138,13 +132,11 @@
   </div>
 
   <div class="card" style="border-left: 4px solid #2563eb;">
-    <h3 style="margin: 0 0 0.5rem 0; color: #0f172a;">📖 Live API Documentation & Diagnostics</h3>
+    <h3 style="margin: 0 0 0.5rem 0; color: #0f172a;">⚡ System Diagnostics</h3>
     <p style="margin: 0 0 0.75rem 0; font-size: 0.9rem; color: #475569;">
-      Direct interactive access to all system APIs, schemas, and live diagnostic checks:
+      Verify backend system health and operational readiness:
     </p>
     <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
-      <a href="/docs" target="_blank" rel="noreferrer" class="btn">Open Swagger UI Interactive Console ↗</a>
-      <a href="/redoc" target="_blank" rel="noreferrer" class="btn btn-secondary">Open ReDoc Documentation ↗</a>
       <button class="btn btn-secondary" onclick="testHealth()">Test System Health (/health)</button>
     </div>
     <div id="healthResult" style="margin-top: 0.75rem; font-size: 0.85rem; display: none;"></div>
