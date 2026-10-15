@@ -124,3 +124,51 @@ def test_triage_auto_sync_triggers_escalation_for_urgent(monkeypatch):
     urgent_ticket = next((t for t in pending if t["priority"] == "urgent"), None)
     assert urgent_ticket is not None
     assert urgent_ticket["escalated"] == "True"
+
+
+def test_smtp_email_dispatch_flow(monkeypatch):
+    from app.escalation import dispatch_smtp_email
+
+    # 1. Mock mode when live SMTP is not enabled in test
+    monkeypatch.delenv("ENABLE_LIVE_SMTP_IN_TESTS", raising=False)
+    res_mock = dispatch_smtp_email("test@example.com", "Test Subject", "Test Body")
+    assert res_mock["sent"] is False
+    assert res_mock["mode"] == "mock"
+
+    # 2. Simulated SMTP connection
+    sent_calls = []
+
+    class MockSMTP:
+        def __init__(self, host, port, timeout=10):
+            self.host = host
+            self.port = port
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+
+        def starttls(self):
+            pass
+
+        def login(self, user, pwd):
+            pass
+
+        def sendmail(self, from_addr, to_addrs, msg_str):
+            sent_calls.append({"from": from_addr, "to": to_addrs, "msg": msg_str})
+
+    monkeypatch.setattr("smtplib.SMTP", MockSMTP)
+    monkeypatch.setenv("ENABLE_LIVE_SMTP_IN_TESTS", "true")
+    monkeypatch.setenv("SMTP_HOST", "smtp.testserver.com")
+    monkeypatch.setenv("SMTP_PORT", "587")
+    monkeypatch.setenv("SMTP_USER", "notifications@company.com")
+    monkeypatch.setenv("SMTP_PASSWORD", "secret_pass")
+
+    res_live = dispatch_smtp_email(
+        "sailakshman212005@gmail.com", "Urgent Alert", "Ticket body"
+    )
+    assert res_live["sent"] is True
+    assert res_live["mode"] == "smtp"
+    assert len(sent_calls) == 1
+    assert sent_calls[0]["to"] == ["sailakshman212005@gmail.com"]

@@ -1,11 +1,58 @@
 import logging
 import os
+import smtplib
+import sys
+from email.mime.text import MIMEText
 from typing import Any
 
 from app.schemas import OpsTicketRecord
 from app.tracking_sync import is_ticket_urgent
 
 logger = logging.getLogger(__name__)
+
+
+def dispatch_smtp_email(
+    to_email: str,
+    subject: str,
+    body: str,
+) -> dict[str, Any]:
+    """Send real email via SMTP if credentials are configured in environment."""
+    if "pytest" in sys.modules and not os.getenv("ENABLE_LIVE_SMTP_IN_TESTS"):
+        return {
+            "sent": False,
+            "mode": "mock",
+            "message": "Pytest environment detected. Real SMTP suppressed.",
+        }
+
+    smtp_host = os.getenv("SMTP_HOST")
+    smtp_port_raw = os.getenv("SMTP_PORT", "587")
+    smtp_user = os.getenv("SMTP_USER")
+    smtp_password = os.getenv("SMTP_PASSWORD")
+    smtp_from = os.getenv("SMTP_FROM", smtp_user or "alerts@company.com")
+
+    if not smtp_host or not smtp_user or not smtp_password:
+        return {
+            "sent": False,
+            "mode": "mock",
+            "message": "SMTP credentials not configured. Dispatched in mock mode.",
+        }
+
+    try:
+        port = int(smtp_port_raw)
+        msg = MIMEText(body)
+        msg["Subject"] = subject
+        msg["From"] = smtp_from
+        msg["To"] = to_email
+
+        with smtplib.SMTP(smtp_host, port, timeout=10) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_password)
+            server.sendmail(smtp_from, [to_email], msg.as_string())
+        logger.info("Real SMTP email successfully delivered to %s", to_email)
+        return {"sent": True, "mode": "smtp", "recipient": to_email}
+    except (smtplib.SMTPException, OSError) as err:
+        logger.error("SMTP delivery failed to %s: %s", to_email, err)
+        return {"sent": False, "mode": "smtp_error", "error": str(err)}
 
 
 def send_escalation_alert(
@@ -45,6 +92,7 @@ def send_escalation_alert(
     recipient = (
         recipient_override
         or os.getenv("ESCALATION_MANAGER_EMAIL")
+        or os.getenv("ESCALATION_EMAIL")
         or "manager@company.com"
     )
 
@@ -73,6 +121,7 @@ def send_escalation_alert(
         recipient,
         alert_type,
     )
+    smtp_res = dispatch_smtp_email(recipient, subject, body)
     return {
         "dispatched": True,
         "recipient": recipient,
@@ -81,4 +130,5 @@ def send_escalation_alert(
         "ticket_id": ticket_id,
         "amount": amount,
         "alert_type": alert_type,
+        "smtp": smtp_res,
     }

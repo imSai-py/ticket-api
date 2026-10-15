@@ -4,3 +4,6 @@ TCK-5084,2026-10-15 15:15:19,in_progress,normal,Login,riya,jo.marsh@example.com,
 TCK-5041,2026-10-15 15:15:19,open,urgent,Refunds,lia,max.obi@example.com,esc,80.00
 TCK-5053,2026-10-15 15:15:19,resolved,high,Shipping,sam,dara.singh@example.com,vip,0.00
 TCK-5039,2026-10-15 15:15:19,Approved,urgent,Billing,ken,hana.ito@example.com,ESCALATED,45.00
+TCK-5085,2026-10-15 15:39:22,open,high,Billing,Unassigned,jane.doe@example.com,,0.00
+TCK-5086,2026-10-15 15:42:24,open,urgent,Billing,Riya,omar.ali@example.com,escalated,480.00
+TCK-5087,2026-10-15 15:58:00,open,urgent,Account,Riya,vp.finance@megacorp.com,"escalated, urgent",2400.00
