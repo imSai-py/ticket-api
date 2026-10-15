@@ -423,6 +423,15 @@ class ResubmissionResolution(NamedTuple):
     notes: str
 
 
+class ResubmissionContext(NamedTuple):
+    """Context bundle of ticket metadata used during status and notes resolution."""
+
+    customer_email: str
+    customer_name: str
+    verification_note: str
+    amount_val: float
+
+
 def _is_needs_info_status(status: str) -> bool:
     """Determine if a status string represents needs_info status."""
     clean = str(status).strip()
@@ -438,13 +447,14 @@ def _resolve_resubmission_status_and_notes(
     existing_row: dict[str, Any] | None,
     ticket_payload: dict[str, Any],
     now_local: str,
-    customer_email: str,
-    customer_name: str,
-    verification_note: str,
-    amount_val: float,
+    ctx: ResubmissionContext,
     allow_resubmission: bool = True,
 ) -> ResubmissionResolution:
     """Helper to resolve status, created_at, updated_at, and audit notes uniformly across sync paths."""
+    customer_email = ctx.customer_email
+    customer_name = ctx.customer_name
+    verification_note = ctx.verification_note
+    amount_val = ctx.amount_val
     provided_status_raw = ticket_payload.get("status")
     provided_status = (
         str(provided_status_raw).strip()
@@ -627,10 +637,12 @@ def sync_ticket_to_spreadsheet(
         existing_row=rows[existing_idx] if existing_idx is not None else None,
         ticket_payload=ticket,
         now_local=now_local,
-        customer_email=customer_email,
-        customer_name=customer_name,
-        verification_note=verification_note,
-        amount_val=amount_val,
+        ctx=ResubmissionContext(
+            customer_email=customer_email,
+            customer_name=customer_name,
+            verification_note=verification_note,
+            amount_val=amount_val,
+        ),
     )
 
     # Determine reason: explicit reason or extracted operational reason
@@ -891,10 +903,12 @@ def sync_tickets_batch_to_spreadsheet(
             existing_row=rows[existing_idx] if existing_idx is not None else None,
             ticket_payload=ticket,
             now_local=now_local,
-            customer_email=customer_email,
-            customer_name=customer_name,
-            verification_note=verification_note,
-            amount_val=amount_val,
+            ctx=ResubmissionContext(
+                customer_email=customer_email,
+                customer_name=customer_name,
+                verification_note=verification_note,
+                amount_val=amount_val,
+            ),
             allow_resubmission=False,
         )
 

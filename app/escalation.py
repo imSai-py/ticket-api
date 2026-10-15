@@ -414,20 +414,24 @@ def send_agent_action_notification(
 
 
 def send_agent_info_request_email(
-    ticket_id: dict[str, Any] | str,
+    ticket_or_id: dict[str, Any] | str | None = None,
     customer_name: str | None = None,
     amount: float | str | None = None,
     reason: str | None = None,
     agent_email: str | None = None,
     instructions: str = "Manager requested additional customer information and verification details before approving this refund.",
     recipient_override: str | None = None,
+    **kwargs: Any,
 ) -> dict[str, Any]:
     """Dispatch an automated request-for-info email notification to the assigned support agent.
 
     Supports both dictionary payload and positional arguments per Spec L71.
     """
-    if isinstance(ticket_id, dict):
-        ticket = ticket_id
+    actual_input = (
+        ticket_or_id if ticket_or_id is not None else kwargs.get("ticket_id", "Unknown")
+    )
+    if isinstance(actual_input, dict):
+        ticket = actual_input
         resolved_ticket_id = ticket.get("ticket_id", "Unknown")
         customer = (
             ticket.get("customer_name") or ticket.get("customer_email") or "Customer"
@@ -441,7 +445,7 @@ def send_agent_info_request_email(
             recipient_override=recipient_override,
         )
     else:
-        resolved_ticket_id = str(ticket_id)
+        resolved_ticket_id = str(actual_input)
         customer = str(customer_name or "Customer")
         amount_val = (
             f"{float(amount):.2f}"

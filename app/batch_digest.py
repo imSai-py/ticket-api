@@ -4,8 +4,11 @@ import os
 from datetime import datetime
 from typing import Any
 
-from app.escalation import dispatch_smtp_email, is_billing_category
-from app.schemas import build_approval_action_urls
+from app.escalation import (
+    build_approval_action_urls,
+    dispatch_smtp_email,
+    is_billing_category,
+)
 from app.tracking_sync import get_pending_approvals
 
 

@@ -57,15 +57,6 @@ class ApprovalActionUrls(NamedTuple):
     need_info_url: str
 
 
-def build_approval_action_urls(
-    ticket_id: str, base_url: str | None = None
-) -> ApprovalActionUrls:
-    """Delegate to escalation routing helper for backwards compatibility."""
-    from app.escalation import build_approval_action_urls as _builder
-
-    return _builder(ticket_id, base_url)
-
-
 class TriageRequest(BaseModel):
     """Incoming request for ticket triage."""
 

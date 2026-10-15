@@ -1,8 +1,6 @@
 from fastapi.testclient import TestClient
 
-from app.batch_digest import generate_batch_digest
 from app.main import app
-from app.schemas import ApprovalStatusEnum, SyncTicketRequest
 from app.tracking_sync import sync_ticket_to_spreadsheet
 
 client = TestClient(app)
@@ -58,7 +56,9 @@ def test_action_url_query_format_in_email_digest(tmp_path, monkeypatch):
         csv_path=test_csv,
     )
 
-    digest = generate_batch_digest(csv_path=test_csv)
+    res = client.post("/ops/approvals/send-digest")
+    assert res.status_code == 200
+    digest = res.json()
     assert (
         "https://api.example.com/ops/approvals/action?ticket_id=TCK-URL-01&status=Approved"
         in digest["body_table"]
@@ -112,15 +112,49 @@ def test_send_agent_info_request_email_positional_args(tmp_path, monkeypatch):
     assert "Bruce Wayne" in notif["body"]
 
 
-def test_approval_status_enum_needs_info_value():
-    """Spec L27 & L58: ApprovalStatusEnum.NEEDS_INFO.value == 'needs_info'."""
-    assert ApprovalStatusEnum.NEEDS_INFO.value == "needs_info"
+def test_approval_action_accepts_needs_info_status(tmp_path, monkeypatch):
+    """Spec L27 & L58: /ops/approvals/action endpoint accepts status=needs_info."""
+    test_csv = str(tmp_path / "needs_info_enum.csv")
+    monkeypatch.setenv("OPS_TRACKING_PATH", test_csv)
+    monkeypatch.setenv("OPS_TRACKING_CSV_PATH", test_csv)
+
+    sync_res = client.post(
+        "/ops/sync-ticket",
+        json={
+            "customer_name": "Test User",
+            "category": "Billing",
+            "priority": "urgent",
+            "amount": 100.0,
+            "reason": "Initial inquiry",
+        },
+    )
+    assert sync_res.status_code == 200
+    ticket_id = sync_res.json()["ticket"]["ticket_id"]
+
+    res = client.get(f"/ops/approvals/{ticket_id}/action?status=needs_info")
+    assert res.status_code == 200
+    assert "marked as needing more info" in res.text
 
 
-def test_sync_ticket_request_schema_no_arbitrary_status():
-    """Spec Scope: SyncTicketRequest does not expose arbitrary status injection field."""
-    fields = SyncTicketRequest.model_fields
-    assert "status" not in fields
+def test_sync_ticket_request_ignores_arbitrary_status_injection(tmp_path, monkeypatch):
+    """Spec Scope: POST /ops/sync-ticket does not permit arbitrary client status override to Approved."""
+    test_csv = str(tmp_path / "no_status_injection.csv")
+    monkeypatch.setenv("OPS_TRACKING_PATH", test_csv)
+    monkeypatch.setenv("OPS_TRACKING_CSV_PATH", test_csv)
+
+    sync_res = client.post(
+        "/ops/sync-ticket",
+        json={
+            "customer_name": "Injected Customer",
+            "category": "Billing",
+            "priority": "normal",
+            "amount": 50.0,
+            "reason": "Test dispute",
+            "status": "Approved",
+        },
+    )
+    assert sync_res.status_code == 200
+    assert sync_res.json()["ticket"]["status"] == "Pending"
 
 
 def test_terminal_approval_status_transitions(tmp_path, monkeypatch):

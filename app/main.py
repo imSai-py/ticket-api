@@ -660,7 +660,11 @@ def ops_send_digest() -> dict[str, Any]:
 
 
 @app.get("/ops/approvals/{ticket_id}/action", response_class=HTMLResponse)
-def ops_approval_action(ticket_id: str, status: str = Query(...)) -> HTMLResponse:
+def ops_approval_action(
+    ticket_id: str,
+    status: str = Query(...),
+    instructions: str | None = Query(None),
+) -> HTMLResponse:
     clean_ticket_id = ticket_id.strip()
     if not clean_ticket_id:
         raise HTTPException(
@@ -694,7 +698,10 @@ def ops_approval_action(ticket_id: str, status: str = Query(...)) -> HTMLRespons
     # Notify assigned support agent of the manager decision
     try:
         if approval_status == ApprovalStatusEnum.NEEDS_INFO:
-            send_agent_info_request_email(updated_record)
+            if instructions:
+                send_agent_info_request_email(updated_record, instructions=instructions)
+            else:
+                send_agent_info_request_email(updated_record)
         else:
             send_agent_action_notification(updated_record, action=approval_status.value)
     except (OSError, KeyError, ValueError) as err:
@@ -720,9 +727,13 @@ def ops_approval_action(ticket_id: str, status: str = Query(...)) -> HTMLRespons
 
 @app.get("/ops/approvals/action", response_class=HTMLResponse)
 def ops_approval_action_query(
-    ticket_id: str = Query(...), status: str = Query(...)
+    ticket_id: str = Query(...),
+    status: str = Query(...),
+    instructions: str | None = Query(None),
 ) -> HTMLResponse:
-    return ops_approval_action(ticket_id=ticket_id, status=status)
+    return ops_approval_action(
+        ticket_id=ticket_id, status=status, instructions=instructions
+    )
 
 
 @app.post("/triage", response_model=TriageResponse)
