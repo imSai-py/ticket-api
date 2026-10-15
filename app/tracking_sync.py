@@ -12,15 +12,19 @@ logger = logging.getLogger(__name__)
 
 FIELDNAMES = [
     "ticket_id",
-    "customer_name",
-    "category",
+    "created_at",
+    "status",
     "priority",
+    "category",
+    "assigned_to",
+    "customer_email",
+    "labels",
+    "refund_amount",
+    "customer_name",
     "amount",
     "reason",
     "agent",
-    "status",
     "escalated",
-    "created_at",
     "updated_at",
     "notes",
 ]
@@ -181,12 +185,40 @@ def _ensure_file_exists(csv_path: str) -> None:
 
 
 def _read_all(csv_path: str) -> list[dict[str, Any]]:
-    """Read all rows from the tracking CSV file."""
+    """Read all rows from the tracking CSV file with bidirectional alias mapping."""
     _ensure_file_exists(csv_path)
     try:
         with open(csv_path, mode="r", newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
-            return list(reader)
+            rows = []
+            for r in reader:
+                # Guarantee bidirectional alias availability across formats
+                if "assigned_to" in r and not r.get("agent"):
+                    r["agent"] = r["assigned_to"]
+                elif "agent" in r and not r.get("assigned_to"):
+                    r["assigned_to"] = r["agent"]
+                if "refund_amount" in r and not r.get("amount"):
+                    r["amount"] = r["refund_amount"]
+                elif "amount" in r and not r.get("refund_amount"):
+                    r["refund_amount"] = r["amount"]
+                if "labels" in r and not r.get("escalated"):
+                    r["escalated"] = (
+                        "True" if check_escalation_in_labels(r["labels"]) else "False"
+                    )
+                elif "escalated" in r and not r.get("labels"):
+                    r["labels"] = (
+                        "escalated"
+                        if str(r.get("escalated", "")).lower() == "true"
+                        else ""
+                    )
+                if "customer_email" in r and not r.get("customer_name"):
+                    r["customer_name"] = r["customer_email"]
+                elif "customer_name" in r and not r.get("customer_email"):
+                    r["customer_email"] = (
+                        r["customer_name"] if "@" in str(r["customer_name"]) else ""
+                    )
+                rows.append(r)
+            return rows
     except PermissionError as err:
         logger.error(
             "Spreadsheet file %s is locked by an external process: %s",
@@ -433,17 +465,34 @@ def sync_ticket_to_spreadsheet(
             ticket.get("subject", ""), ticket.get("text", "")
         )
 
+    assigned_to_val = str(
+        ticket.get("assigned_to") or ticket.get("agent") or ""
+    ).strip()
+    customer_email_val = str(
+        ticket.get("customer_email") or ticket.get("requester_email") or ""
+    ).strip()
+    if not customer_email_val and "@" in customer_name:
+        customer_email_val = customer_name
+    labels_val = str(
+        ticket.get("labels") or ticket.get("tags") or ("escalated" if is_urgent else "")
+    ).strip()
+    formatted_amount = f"{amount_val:.2f}"
+
     new_row: dict[str, Any] = {
         "ticket_id": sanitize_cell(ticket_id),
-        "customer_name": sanitize_cell(customer_name),
-        "category": sanitize_cell(ticket.get("category", "Billing")),
-        "priority": sanitize_cell(effective_priority),
-        "amount": f"{amount_val:.2f}",
-        "reason": sanitize_cell(reason_val),
-        "agent": sanitize_cell(ticket.get("agent") or ""),
-        "status": sanitize_cell(status_val),
-        "escalated": "True" if is_urgent else "False",
         "created_at": sanitize_cell(created_time),
+        "status": sanitize_cell(status_val),
+        "priority": sanitize_cell(effective_priority),
+        "category": sanitize_cell(ticket.get("category", "Billing")),
+        "assigned_to": sanitize_cell(assigned_to_val),
+        "customer_email": sanitize_cell(customer_email_val),
+        "labels": sanitize_cell(labels_val),
+        "refund_amount": formatted_amount,
+        "customer_name": sanitize_cell(customer_name),
+        "amount": formatted_amount,
+        "reason": sanitize_cell(reason_val),
+        "agent": sanitize_cell(assigned_to_val),
+        "escalated": "True" if is_urgent else "False",
         "updated_at": sanitize_cell(updated_time),
         "notes": sanitize_cell(notes_val),
     }

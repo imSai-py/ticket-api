@@ -80,18 +80,29 @@ class TriageResponse(BaseModel):
 
 
 class OpsTicketRecord(BaseModel):
-    """Typed domain model for operational tracking spreadsheet row."""
+    """Typed domain model for operational tracking spreadsheet row aligned with Helpdesk Export New Format."""
 
     ticket_id: str = Field(description="Unique ticket identifier")
-    customer_name: str = Field(default="Customer", description="Customer full name")
-    category: str = Field(default="Billing", description="Ticket category")
+    created_at: str = Field(default="", description="Creation timestamp")
+    status: str = Field(default="Pending", description="Approval lifecycle state")
     priority: str = Field(default="normal", description="Ticket urgency priority")
+    category: str = Field(default="Billing", description="Ticket category")
+    assigned_to: str = Field(
+        default="", description="Handling agent name (aligned with helpdesk export)"
+    )
+    customer_email: str = Field(default="", description="Customer contact email")
+    labels: str = Field(default="", description="Ticket labels and tags")
+    refund_amount: str = Field(
+        default="0.00", description="Formatted refund amount in USD"
+    )
+
+    customer_name: str = Field(default="Customer", description="Customer full name")
     amount: str = Field(default="0.00", description="Formatted dollar amount")
     reason: str = Field(default="", description="Operational justification")
-    agent: str = Field(default="", description="Handling agent name")
-    status: str = Field(default="Pending", description="Approval lifecycle state")
+    agent: str = Field(
+        default="", description="Handling agent name (alias for assigned_to)"
+    )
     escalated: str = Field(default="False", description="Urgent escalation flag")
-    created_at: str = Field(default="", description="Creation timestamp")
     updated_at: str = Field(default="", description="Update timestamp")
     notes: str = Field(default="", description="Verification and audit notes")
 
