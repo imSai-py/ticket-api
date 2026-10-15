@@ -6,6 +6,7 @@ import os
 import re
 import sys
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -356,6 +357,12 @@ def ops_sync_ticket(req: SyncTicketRequest) -> dict[str, Any]:
                 "status": row["status"],
                 "agent": row["agent"],
                 "assigned_to": row["agent"],
+                "customer_email": row.get("customer_email")
+                or existing.get("customer_email"),
+                "refund_amount": row.get("refund_amount")
+                or existing.get("refund_amount"),
+                "reason": row.get("reason") or existing.get("reason"),
+                "labels": row.get("labels") or existing.get("labels"),
             }
         )
     else:
@@ -648,9 +655,16 @@ def ops_approval_action(ticket_id: str, status: str = Query(...)) -> HTMLRespons
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    action_note = ""
+    if approval_status == ApprovalStatusEnum.NEEDS_INFO:
+        action_note = f"Manager requested more info at {now_str}"
+
     try:
         updated_record = update_approval_status(
-            clean_ticket_id, new_status=approval_status.value
+            clean_ticket_id,
+            new_status=approval_status.value,
+            notes=action_note,
         )
     except ValueError as e:
         raise HTTPException(

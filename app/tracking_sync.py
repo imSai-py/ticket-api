@@ -470,38 +470,75 @@ def sync_ticket_to_spreadsheet(
         (i for i, r in enumerate(rows) if r["ticket_id"] == ticket_id), None
     )
 
+    provided_status_raw = ticket.get("status")
+    provided_status = (
+        str(provided_status_raw).strip()
+        if provided_status_raw is not None
+        and str(provided_status_raw).strip() not in ("", "None")
+        else None
+    )
+
     # If ticket already exists and status was not explicitly passed in payload, retain existing status
     if existing_idx is not None:
         created_time = rows[existing_idx].get("created_at") or now_local
-        updated_time = rows[existing_idx].get("updated_at") or ""
-        status_val = (
-            rows[existing_idx].get("status", "Pending")
-            if "status" not in ticket
-            else str(ticket.get("status", "Pending"))
+        existing_status = str(rows[existing_idx].get("status", "Pending"))
+        if existing_status == "None":
+            existing_status = "Pending"
+        existing_notes = str(rows[existing_idx].get("notes", "") or "")
+
+        is_resubmission = existing_status.strip().lower() in (
+            "needs info",
+            "needs_info",
         )
-        existing_notes = rows[existing_idx].get("notes", "")
+
+        if is_resubmission and (
+            not provided_status
+            or provided_status.lower() in ("pending", "needs info", "needs_info")
+        ):
+            status_val = "Pending"
+            updated_time = now_local
+        elif provided_status:
+            status_val = provided_status
+            updated_time = now_local
+        else:
+            status_val = existing_status
+            updated_time = rows[existing_idx].get("updated_at") or now_local
     else:
         created_time = now_local
         updated_time = ""
-        status_val = str(ticket.get("status", "Pending"))
+        status_val = provided_status or "Pending"
         existing_notes = ""
+        is_resubmission = False
 
     explicit_notes = str(ticket.get("notes") or "").strip()
     notes_parts: list[str] = []
-    if explicit_notes:
-        notes_parts.append(explicit_notes)
-    elif existing_notes:
+    if existing_notes:
         notes_parts.append(existing_notes)
+
+    if explicit_notes:
+        if is_resubmission and " at " not in explicit_notes:
+            formatted_explicit = f"{explicit_notes} at {now_local}"
+        else:
+            formatted_explicit = explicit_notes
+        if (
+            formatted_explicit not in existing_notes
+            and formatted_explicit not in notes_parts
+        ):
+            notes_parts.append(formatted_explicit)
+    elif is_resubmission:
+        resubmit_note = f"Agent resubmitted ticket at {now_local}"
+        if resubmit_note not in existing_notes and resubmit_note not in notes_parts:
+            notes_parts.append(resubmit_note)
 
     if customer_email and customer_email != customer_name:
         email_note = f"email: {customer_email}"
-        if email_note not in notes_parts:
+        if not any(email_note in part for part in notes_parts):
             notes_parts.append(email_note)
 
-    if verification_note and verification_note not in notes_parts:
+    if verification_note and not any(verification_note in part for part in notes_parts):
         notes_parts.append(verification_note)
 
-    notes_val = "; ".join(notes_parts)
+    notes_val = "; ".join([p for p in notes_parts if p.strip()])
 
     # Determine reason: explicit reason or extracted operational reason
     provided_reason = ticket.get("reason", "")
@@ -659,41 +696,81 @@ def sync_tickets_batch_to_spreadsheet(
             (i for i, r in enumerate(rows) if r["ticket_id"] == ticket_id), None
         )
 
+        provided_status_raw = ticket.get("status")
+        provided_status = (
+            str(provided_status_raw).strip()
+            if provided_status_raw is not None
+            and str(provided_status_raw).strip() not in ("", "None")
+            else None
+        )
+
         if existing_idx is not None:
             created_time = (
                 ticket.get("created_at")
                 or rows[existing_idx].get("created_at")
                 or now_local
             )
-            updated_time = rows[existing_idx].get("updated_at") or ""
-            status_val = (
-                rows[existing_idx].get("status", "open")
-                if "status" not in ticket or not ticket.get("status")
-                else str(ticket.get("status", "open"))
+            existing_status = str(rows[existing_idx].get("status", "open"))
+            if existing_status == "None":
+                existing_status = "Pending"
+            existing_notes = str(rows[existing_idx].get("notes", "") or "")
+
+            is_resubmission = existing_status.strip().lower() in (
+                "needs info",
+                "needs_info",
             )
-            existing_notes = rows[existing_idx].get("notes", "")
+
+            if is_resubmission and (
+                not provided_status
+                or provided_status.lower()
+                in ("pending", "open", "needs info", "needs_info")
+            ):
+                status_val = "Pending"
+                updated_time = now_local
+            elif provided_status:
+                status_val = provided_status
+                updated_time = now_local
+            else:
+                status_val = existing_status
+                updated_time = rows[existing_idx].get("updated_at") or now_local
         else:
             created_time = ticket.get("created_at") or now_local
             updated_time = ""
-            status_val = str(ticket.get("status") or "open")
+            status_val = provided_status or "open"
             existing_notes = ""
+            is_resubmission = False
 
         explicit_notes = str(ticket.get("notes") or "").strip()
         notes_parts: list[str] = []
-        if explicit_notes:
-            notes_parts.append(explicit_notes)
-        elif existing_notes:
+        if existing_notes:
             notes_parts.append(existing_notes)
+
+        if explicit_notes:
+            if is_resubmission and " at " not in explicit_notes:
+                formatted_explicit = f"{explicit_notes} at {now_local}"
+            else:
+                formatted_explicit = explicit_notes
+            if (
+                formatted_explicit not in existing_notes
+                and formatted_explicit not in notes_parts
+            ):
+                notes_parts.append(formatted_explicit)
+        elif is_resubmission:
+            resubmit_note = f"Agent resubmitted ticket at {now_local}"
+            if resubmit_note not in existing_notes and resubmit_note not in notes_parts:
+                notes_parts.append(resubmit_note)
 
         if customer_email and customer_email != customer_name:
             email_note = f"email: {customer_email}"
-            if email_note not in notes_parts:
+            if not any(email_note in part for part in notes_parts):
                 notes_parts.append(email_note)
 
-        if verification_note and verification_note not in notes_parts:
+        if verification_note and not any(
+            verification_note in part for part in notes_parts
+        ):
             notes_parts.append(verification_note)
 
-        notes_val = "; ".join(notes_parts)
+        notes_val = "; ".join([p for p in notes_parts if p.strip()])
 
         provided_reason = ticket.get("reason", "")
         if provided_reason:

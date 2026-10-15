@@ -194,3 +194,181 @@ def test_action_route_dispatches_agent_info_request(tmp_path, monkeypatch):
     assert res.status_code == 200
     assert len(dispatched_calls) == 1
     assert dispatched_calls[0]["ticket_id"] == "TCK-ACT-105"
+
+
+def test_resubmission_loop_transitions_status_back_to_pending(tmp_path, monkeypatch):
+    """Verify closed-loop re-submission: pending -> needs_info -> agent update -> pending -> approved."""
+    test_csv = str(tmp_path / "resubmission_loop.csv")
+    monkeypatch.setenv("OPS_TRACKING_PATH", test_csv)
+    monkeypatch.setenv("OPS_TRACKING_CSV_PATH", test_csv)
+
+    # 1. Ingest initial ticket
+    init_res = client.post(
+        "/ops/sync-ticket",
+        json={
+            "ticket_id": "TCK-RESUB-01",
+            "customer_name": "Hal Jordan",
+            "customer_email": "hal@oa.org",
+            "category": "Billing",
+            "priority": "urgent",
+            "amount": 450.0,
+            "reason": "Battery charge discrepancy",
+            "agent": "Kilowog",
+        },
+    )
+    assert init_res.status_code == 200
+
+    # 2. Confirm it appears in pending queue
+    pending_res1 = client.get("/ops/approvals/pending")
+    assert pending_res1.status_code == 200
+    pending_ids1 = [
+        t["ticket_id"] for t in pending_res1.json().get("pending_approvals", [])
+    ]
+    assert "TCK-RESUB-01" in pending_ids1
+
+    # 3. Manager requests more info
+    action_res = client.get("/ops/approvals/TCK-RESUB-01/action?status=needs_info")
+    assert action_res.status_code == 200
+    assert "Ticket TCK-RESUB-01 marked as needing more info" in action_res.text
+
+    # 4. Ticket is no longer in pending approvals
+    pending_res2 = client.get("/ops/approvals/pending")
+    pending_ids2 = [
+        t["ticket_id"] for t in pending_res2.json().get("pending_approvals", [])
+    ]
+    assert "TCK-RESUB-01" not in pending_ids2
+
+    # 5. Agent resubmits with invoice verification details
+    resubmit_res = client.post(
+        "/ops/sync-ticket",
+        json={
+            "ticket_id": "TCK-RESUB-01",
+            "customer_name": "Hal Jordan",
+            "customer_email": "hal@oa.org",
+            "category": "Billing",
+            "priority": "urgent",
+            "amount": 450.0,
+            "reason": "Verified battery charge discrepancy with energy invoice #GL-2814",
+            "notes": "Agent verified transaction log and energy invoice #GL-2814",
+            "agent": "Kilowog",
+        },
+    )
+    assert resubmit_res.status_code == 200
+    resub_data = resubmit_res.json()["ticket"]
+    assert resub_data["status"] == "Pending"
+    assert "Manager requested more info at" in resub_data["notes"]
+    assert (
+        "Agent verified transaction log and energy invoice #GL-2814 at"
+        in resub_data["notes"]
+    )
+
+    # 6. Ticket re-appears in pending approvals
+    pending_res3 = client.get("/ops/approvals/pending")
+    pending_ids3 = [
+        t["ticket_id"] for t in pending_res3.json().get("pending_approvals", [])
+    ]
+    assert "TCK-RESUB-01" in pending_ids3
+
+    # 7. Subsequent batch digest includes the resubmitted ticket
+    digest = generate_batch_digest(csv_path=test_csv)
+    assert digest["has_pending"] is True
+    assert "TCK-RESUB-01" in digest["body_table"]
+    assert "Need More Info" in digest["html_body"]
+
+    # 8. Manager now approves the resubmitted ticket
+    approve_res = client.get("/ops/approvals/TCK-RESUB-01/action?status=Approved")
+    assert approve_res.status_code == 200
+    assert "Ticket TCK-RESUB-01 marked Approved" in approve_res.text
+
+    # 9. Verify ticket leaves pending queue and keeps full audit notes
+    pending_res4 = client.get("/ops/approvals/pending")
+    pending_ids4 = [
+        t["ticket_id"] for t in pending_res4.json().get("pending_approvals", [])
+    ]
+    assert "TCK-RESUB-01" not in pending_ids4
+
+
+def test_resubmission_without_explicit_notes(tmp_path, monkeypatch):
+    """Verify resubmission defaults to a timestamped audit note when agent passes no notes."""
+    test_csv = str(tmp_path / "resubmission_no_notes.csv")
+    monkeypatch.setenv("OPS_TRACKING_PATH", test_csv)
+    monkeypatch.setenv("OPS_TRACKING_CSV_PATH", test_csv)
+
+    client.post(
+        "/ops/sync-ticket",
+        json={
+            "ticket_id": "TCK-RESUB-02",
+            "customer_name": "Carol Danvers",
+            "category": "Billing",
+            "amount": 300.0,
+            "reason": "Flight charge adjustment",
+            "agent": "Fury",
+        },
+    )
+
+    # Mark as needing more info
+    client.get("/ops/approvals/TCK-RESUB-02/action?status=needs_info")
+
+    # Agent resubmits with only updated amount
+    resubmit_res = client.post(
+        "/ops/sync-ticket",
+        json={
+            "ticket_id": "TCK-RESUB-02",
+            "customer_name": "Carol Danvers",
+            "category": "Billing",
+            "amount": 250.0,
+            "reason": "Adjusted refund amount per policy",
+            "agent": "Fury",
+        },
+    )
+    assert resubmit_res.status_code == 200
+    ticket = resubmit_res.json()["ticket"]
+    assert ticket["status"] == "Pending"
+    assert "Manager requested more info at" in ticket["notes"]
+    assert "Agent resubmitted ticket at" in ticket["notes"]
+    assert ticket["refund_amount"] == "250.00"
+
+
+def test_resubmission_csv_row_integrity_with_newlines(tmp_path, monkeypatch):
+    """Ensure multi-line agent notes pass through sanitize_cell and preserve single-line CSV rows."""
+    test_csv = str(tmp_path / "resubmission_integrity.csv")
+    monkeypatch.setenv("OPS_TRACKING_PATH", test_csv)
+    monkeypatch.setenv("OPS_TRACKING_CSV_PATH", test_csv)
+
+    client.post(
+        "/ops/sync-ticket",
+        json={
+            "ticket_id": "TCK-RESUB-03",
+            "customer_name": "Clark Kent",
+            "category": "Billing",
+            "amount": 100.0,
+            "reason": "Press pass reimbursement",
+            "agent": "Lois",
+        },
+    )
+
+    client.get("/ops/approvals/TCK-RESUB-03/action?status=needs_info")
+
+    res = client.post(
+        "/ops/sync-ticket",
+        json={
+            "ticket_id": "TCK-RESUB-03",
+            "customer_name": "Clark Kent",
+            "category": "Billing",
+            "amount": 100.0,
+            "reason": "Press pass\nreimbursement\rwith receipt",
+            "notes": "Verified receipt:\nInvoice #9001\r\nApproved by editor\timmediately.",
+            "agent": "Lois",
+        },
+    )
+    assert res.status_code == 200
+    ticket = res.json()["ticket"]
+    assert ticket["status"] == "Pending"
+    assert "\n" not in ticket["notes"]
+    assert "\r" not in ticket["notes"]
+    assert "\t" not in ticket["notes"]
+
+    # Verify CSV file on disk has exactly header + 1 row (2 lines total)
+    with open(test_csv, mode="r", encoding="utf-8") as f:
+        lines = [line for line in f if line.strip()]
+    assert len(lines) == 2
