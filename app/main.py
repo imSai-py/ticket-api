@@ -553,10 +553,27 @@ async def ingest_batch_csv(
     synced_records = sync_tickets_batch_to_spreadsheet(parsed_rows)
 
     escalations: list[dict[str, Any]] = []
+    escalated_records: list[dict[str, Any]] = []
     for row in synced_records:
-        alert = send_escalation_alert(row, refund_threshold=refund_threshold)
+        alert = send_escalation_alert(
+            row, refund_threshold=refund_threshold, dispatch_smtp=False
+        )
         if alert.get("dispatched") is True:
             escalations.append(alert)
+            escalated_records.append(row)
+
+    # Dispatch ONE consolidated digest email for the entire batch if any tickets escalated
+    if escalated_records:
+        digest_recipient = (
+            os.getenv("ESCALATION_MANAGER_EMAIL")
+            or os.getenv("DIGEST_MANAGER_EMAIL")
+            or "manager@company.com"
+        )
+        generate_batch_digest(
+            recipient=digest_recipient,
+            tickets=escalated_records,
+            send_email=True,
+        )
 
     for row in synced_records:
         existing = next(
@@ -633,6 +650,11 @@ def ops_approval_action(ticket_id: str, status: str = Query(...)) -> HTMLRespons
         raise HTTPException(
             status_code=404, detail=f"Ticket not found: {clean_ticket_id}"
         ) from e
+
+    for t in TICKETS:
+        if t.get("ticket_id") == clean_ticket_id:
+            t["status"] = approval_status.value
+            break
 
     receipt_html = f"<html><body><h3>✓ Ticket {clean_ticket_id} marked {approval_status.value}. You may close this tab.</h3></body></html>"
     return HTMLResponse(content=receipt_html, status_code=200)

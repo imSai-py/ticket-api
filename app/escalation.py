@@ -2,6 +2,7 @@ import logging
 import os
 import smtplib
 import sys
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any
 
@@ -11,10 +12,17 @@ from app.tracking_sync import is_ticket_urgent
 logger = logging.getLogger(__name__)
 
 
+def is_billing_category(category: Any) -> bool:
+    """Return True if category is within the client billing/refund scope."""
+    val = str(getattr(category, "value", category) or "").strip().lower()
+    return "billing" in val or "refund" in val
+
+
 def dispatch_smtp_email(
     to_email: str,
     subject: str,
     body: str,
+    html_body: str | None = None,
 ) -> dict[str, Any]:
     """Send real email via SMTP if credentials are configured in environment."""
     if "pytest" in sys.modules and not os.getenv("ENABLE_LIVE_SMTP_IN_TESTS"):
@@ -39,10 +47,18 @@ def dispatch_smtp_email(
 
     try:
         port = int(smtp_port_raw)
-        msg = MIMEText(body)
-        msg["Subject"] = subject
-        msg["From"] = smtp_from
-        msg["To"] = to_email
+        if html_body:
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"] = smtp_from
+            msg["To"] = to_email
+            msg.attach(MIMEText(body, "plain", "utf-8"))
+            msg.attach(MIMEText(html_body, "html", "utf-8"))
+        else:
+            msg = MIMEText(body, "plain", "utf-8")
+            msg["Subject"] = subject
+            msg["From"] = smtp_from
+            msg["To"] = to_email
 
         with smtplib.SMTP(smtp_host, port, timeout=10) as server:
             server.starttls()
@@ -59,8 +75,9 @@ def send_escalation_alert(
     ticket: OpsTicketRecord | dict[str, Any],
     recipient_override: str | None = None,
     refund_threshold: float | None = None,
+    dispatch_smtp: bool = True,
 ) -> dict[str, Any]:
-    """Dispatch an instant alert for urgent escalated tickets or high-dollar refunds directly to the manager inbox."""
+    """Dispatch an alert for urgent escalated tickets or high-dollar refunds directly to the manager inbox."""
     if isinstance(ticket, OpsTicketRecord):
         ticket_id = ticket.ticket_id
         customer = ticket.customer_name
@@ -75,6 +92,14 @@ def send_escalation_alert(
         category = ticket.get("category", "Billing")
         raw_amt = ticket.get("refund_amount") or ticket.get("amount") or 0.0
         reason = ticket.get("reason", "No reason provided")
+
+    # Scope rule: only Billing/Refund tickets trigger manager escalation alerts
+    if not is_billing_category(category):
+        return {
+            "dispatched": False,
+            "reason": f"Non-billing category '{category}' outside current escalation scope",
+            "ticket_id": ticket_id,
+        }
 
     try:
         amount = float(str(raw_amt).replace("$", "").replace(",", "").strip() or 0.0)
@@ -102,6 +127,10 @@ def send_escalation_alert(
         else "URGENT TICKET ESCALATED FOR MANAGEMENT"
     )
 
+    base_url = (os.getenv("BASE_URL") or "http://localhost:8000").rstrip("/")
+    approve_url = f"{base_url}/ops/approvals/{ticket_id}/action?status=Approved"
+    reject_url = f"{base_url}/ops/approvals/{ticket_id}/action?status=Rejected"
+
     subject = f"[URGENT ESCALATION] Ticket {ticket_id} - {customer}"
     body = (
         "========================================\n"
@@ -112,23 +141,80 @@ def send_escalation_alert(
         f"Category:      {category}\n"
         f"Amount:        ${amount:.2f}\n"
         f"Reason:        {reason}\n\n"
-        "ACTION REQUIRED: Immediate management review and approval required.\n"
+        "ACTION REQUIRED: Immediate management review and approval required.\n\n"
+        f"Approve: {approve_url}\n"
+        f"Reject:  {reject_url}\n"
     )
 
-    logger.warning(
-        "Dispatched urgent escalation alert for ticket %s to %s (%s)",
-        ticket_id,
-        recipient,
-        alert_type,
-    )
-    smtp_res = dispatch_smtp_email(recipient, subject, body)
+    html_body = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }}
+    .card {{ background-color: #ffffff; border-radius: 8px; border: 1px solid #e2e8f0; max-width: 580px; margin: 0 auto; padding: 28px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }}
+    .header {{ border-bottom: 2px solid #ef4444; padding-bottom: 12px; margin-bottom: 18px; }}
+    .title {{ color: #dc2626; font-size: 18px; font-weight: bold; margin: 0; }}
+    .desc {{ color: #475569; font-size: 14px; margin: 0 0 16px 0; }}
+    .table {{ width: 100%; border-collapse: collapse; margin-bottom: 24px; }}
+    .table td {{ padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-size: 14px; }}
+    .label {{ font-weight: 600; color: #64748b; width: 130px; }}
+    .value {{ font-weight: 500; color: #0f172a; }}
+    .amount-highlight {{ color: #dc2626; font-weight: bold; font-size: 16px; }}
+    .actions {{ text-align: center; padding-top: 16px; border-top: 1px solid #e2e8f0; }}
+    .btn {{ display: inline-block; padding: 12px 28px; font-size: 14px; font-weight: bold; text-decoration: none; border-radius: 6px; margin: 0 8px; }}
+    .footer {{ margin-top: 24px; font-size: 12px; color: #94a3b8; text-align: center; }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <h2 class="title">🚨 {alert_type}</h2>
+    </div>
+    <p class="desc">A high-priority billing escalation requires your immediate review and approval.</p>
+    <table class="table">
+      <tr><td class="label">Ticket ID:</td><td class="value"><strong>{ticket_id}</strong></td></tr>
+      <tr><td class="label">Customer:</td><td class="value">{customer}</td></tr>
+      <tr><td class="label">Category:</td><td class="value">{category}</td></tr>
+      <tr><td class="label">Amount:</td><td class="value"><span class="amount-highlight">${amount:.2f}</span></td></tr>
+      <tr><td class="label">Reason:</td><td class="value">{reason}</td></tr>
+    </table>
+    <div class="actions">
+      <a href="{approve_url}" class="btn" style="background-color: #16a34a; color: #ffffff !important; padding: 12px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; margin-right: 12px;">✅ Approve</a>
+      <a href="{reject_url}" class="btn" style="background-color: #dc2626; color: #ffffff !important; padding: 12px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">❌ Reject</a>
+    </div>
+    <div class="footer">
+      Automated operations alert &bull; Bitcot Operations System
+    </div>
+  </div>
+</body>
+</html>"""
+
+    if dispatch_smtp:
+        logger.warning(
+            "Dispatched urgent escalation alert for ticket %s to %s (%s)",
+            ticket_id,
+            recipient,
+            alert_type,
+        )
+        smtp_res = dispatch_smtp_email(recipient, subject, body, html_body=html_body)
+    else:
+        smtp_res = {
+            "sent": False,
+            "mode": "batch_digest_deferred",
+            "message": "Individual email suppressed in favor of consolidated digest.",
+        }
+
     return {
         "dispatched": True,
         "recipient": recipient,
         "subject": subject,
         "body": body,
+        "html_body": html_body,
         "ticket_id": ticket_id,
         "amount": amount,
         "alert_type": alert_type,
         "smtp": smtp_res,
+        "approve_url": approve_url,
+        "reject_url": reject_url,
     }
