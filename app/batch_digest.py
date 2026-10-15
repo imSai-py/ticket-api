@@ -76,13 +76,9 @@ def generate_batch_digest(
         agent = t.get("assigned_to") or t.get("agent") or "System"
         reason = t.get("reason") or "Operational review"
 
-        approve_url = (
-            f"{base_url}/ops/approvals/{t['ticket_id']}/action?status=Approved"
-        )
-        reject_url = f"{base_url}/ops/approvals/{t['ticket_id']}/action?status=Rejected"
-        need_info_url = (
-            f"{base_url}/ops/approvals/{t['ticket_id']}/action?status=needs_info"
-        )
+        approve_url = f"{base_url}/ops/approvals/action?ticket_id={t['ticket_id']}&status=Approved"
+        reject_url = f"{base_url}/ops/approvals/action?ticket_id={t['ticket_id']}&status=Rejected"
+        need_info_url = f"{base_url}/ops/approvals/action?ticket_id={t['ticket_id']}&status=needs_info"
 
         data_lines.append(
             f"{t['ticket_id']:<12} | {customer:<20} | ${amount_num:<9.2f} | {agent:<12} | {reason}\n"

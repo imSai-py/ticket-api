@@ -2,11 +2,11 @@
 
 ## Child Tickets (Execution Frontier)
 
-- [ ] #48 - feat: expand approval status enum and tracking state to support `needs_info` (Blocked by: None)
-- [ ] #49 - feat: add "Need More Info" button to digest emails and action receipt endpoint (Blocked by: #48)
-- [ ] #50 - feat: implement agent notification dispatch on "Need More Info" status change (Blocked by: #49)
-- [ ] #51 - feat: support ticket re-submission and refund legitimacy verification details (Blocked by: #50)
-- [ ] #52 - feat: update scheduler for dual daily digests at 9:00 AM and 3:00 PM (Blocked by: #49)
+- [x] #48 - feat: expand approval status enum and tracking state to support `needs_info` (Blocked by: None)
+- [x] #49 - feat: add "Need More Info" button to digest emails and action receipt endpoint (Blocked by: #48)
+- [x] #50 - feat: implement agent notification dispatch on "Need More Info" status change (Blocked by: #49)
+- [x] #51 - feat: support ticket re-submission and refund legitimacy verification details (Blocked by: #50)
+- [x] #52 - feat: update scheduler for dual daily digests at 9:00 AM and 3:00 PM (Blocked by: #49)
 
 ---
 

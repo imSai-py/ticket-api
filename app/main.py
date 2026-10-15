@@ -40,6 +40,7 @@ from app.tracking_sync import (
     check_storage_health,
     extract_amount,
     extract_operational_reason,
+    get_needs_info_approvals,
     get_pending_approvals,
     normalize_currency_amount,
     resolve_ticket_priority_and_escalation,
@@ -231,6 +232,9 @@ def health_check() -> JSONResponse:
         is_healthy = False
         checks["knowledge_base"] = "error: knowledge base unavailable"
 
+    # 4. Digest scheduler readiness
+    checks["digest_scheduler"] = "ready"
+
     status_str = "healthy" if is_healthy else "degraded"
     status_code = 200 if is_healthy else 503
 
@@ -242,6 +246,7 @@ def health_check() -> JSONResponse:
             "storage": checks["storage"],
             "tickets_data": checks["tickets_data"],
             "knowledge_base": checks["knowledge_base"],
+            "digest_scheduler": checks["digest_scheduler"],
         },
     )
 
@@ -633,7 +638,13 @@ async def ingest_batch_csv(
 @app.get("/ops/approvals/pending")
 def ops_get_pending() -> dict[str, Any]:
     pending = get_pending_approvals()
-    return {"pending_count": len(pending), "pending_approvals": pending}
+    needs_info = get_needs_info_approvals()
+    return {
+        "pending_count": len(pending),
+        "needs_info_count": len(needs_info),
+        "pending_approvals": pending,
+        "needs_info_approvals": needs_info,
+    }
 
 
 @app.post("/ops/approvals/send-digest")

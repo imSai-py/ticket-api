@@ -189,12 +189,17 @@ def test_escalation_alert_contains_html_approve_reject_buttons(monkeypatch):
     assert "html_body" in alert
     assert "✅ Approve" in alert["html_body"]
     assert "❌ Reject" in alert["html_body"]
+    assert "⚠️ Need Info" in alert["html_body"]
     assert (
-        "http://localhost:8000/ops/approvals/TCK-BTN-1/action?status=Approved"
+        "http://localhost:8000/ops/approvals/action?ticket_id=TCK-BTN-1&status=Approved"
         in alert["html_body"]
     )
     assert (
-        "http://localhost:8000/ops/approvals/TCK-BTN-1/action?status=Rejected"
+        "http://localhost:8000/ops/approvals/action?ticket_id=TCK-BTN-1&status=Rejected"
+        in alert["html_body"]
+    )
+    assert (
+        "http://localhost:8000/ops/approvals/action?ticket_id=TCK-BTN-1&status=needs_info"
         in alert["html_body"]
     )
 

@@ -26,7 +26,7 @@ class ApprovalStatusEnum(str, Enum):
     APPROVED = "Approved"
     REJECTED = "Rejected"
     PENDING = "Pending"
-    NEEDS_INFO = "Needs Info"
+    NEEDS_INFO = "needs_info"
 
     @classmethod
     def from_action(cls, value: str) -> "ApprovalStatusEnum":
@@ -143,9 +143,6 @@ class SyncTicketRequest(BaseModel):
     labels: str = Field(default="", description="Ticket labels or tags")
     refund_amount: float | str | None = Field(
         default=None, description="Pre-populated refund amount"
-    )
-    status: str | None = Field(
-        default=None, description="Optional explicit ticket status"
     )
 
     model_config = ConfigDict(use_enum_values=True)
