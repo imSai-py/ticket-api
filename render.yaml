@@ -9,10 +9,18 @@ services:
         value: 8000
       - key: TICKETS_DATA_PATH
         value: data/tickets_sample.csv
+      - key: OPS_TRACKING_PATH
+        value: data/ops_tracking_sheet.csv
+      - key: BASE_URL
+        value: https://ticket-api-jl9f.onrender.com
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL
         value: gemini-3.1-flash-lite
+      - key: ESCALATION_MANAGER_EMAIL
+        sync: false
+      - key: AGENT_NOTIFICATIONS_EMAIL
+        sync: false
 
   - type: static
     name: ticket-triage-frontend
