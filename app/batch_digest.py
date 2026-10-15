@@ -9,7 +9,7 @@ from app.escalation import (
     dispatch_smtp_email,
     is_billing_category,
 )
-from app.tracking_sync import get_pending_approvals
+from app.tracking_sync import _is_needs_info_status, get_pending_approvals
 
 
 def generate_batch_digest(
@@ -33,6 +33,7 @@ def generate_batch_digest(
             for t in tickets
             if is_billing_category(t.get("category"))
             and str(t.get("status", "")).strip().lower() not in ("approved", "rejected")
+            and not _is_needs_info_status(t.get("status", ""))
         ]
     else:
         all_pending = get_pending_approvals(csv_path=csv_path)
