@@ -66,8 +66,8 @@ def generate_batch_digest(
             },
         }
 
-    header_line = f"{'Ticket ID':<12} | {'Customer':<20} | {'Amount':<10} | {'Agent':<12} | {'Reason'}"
-    sep_line = "-" * 85
+    header_line = f"{'Ticket ID':<12} | {'Customer':<20} | {'Category':<12} | {'Amount':<10} | {'Agent':<12} | {'Reason'}"
+    sep_line = "-" * 98
     base_url = (os.getenv("BASE_URL") or "http://localhost:8000").rstrip("/")
     data_lines = []
     html_rows = []
@@ -82,6 +82,7 @@ def generate_batch_digest(
             amount_num = 0.0
 
         customer = t.get("customer_name") or t.get("customer_email") or "Customer"
+        category = t.get("category") or "Billing"
         agent = t.get("assigned_to") or t.get("agent") or "System"
         reason = t.get("reason") or "Operational review"
 
@@ -91,7 +92,7 @@ def generate_batch_digest(
         need_info_url = action_urls.need_info_url
 
         data_lines.append(
-            f"{t['ticket_id']:<12} | {customer:<20} | ${amount_num:<9.2f} | {agent:<12} | {reason}\n"
+            f"{t['ticket_id']:<12} | {customer:<20} | {category:<12} | ${amount_num:<9.2f} | {agent:<12} | {reason}\n"
             f"  -> Actions: [Approve: {approve_url}]  [Reject: {reject_url}]  [Need More Info: {need_info_url}]"
         )
 
@@ -99,6 +100,7 @@ def generate_batch_digest(
             f"<tr>"
             f"  <td style='padding: 10px 12px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>{t['ticket_id']}</td>"
             f"  <td style='padding: 10px 12px; border-bottom: 1px solid #e2e8f0;'>{customer}</td>"
+            f"  <td style='padding: 10px 12px; border-bottom: 1px solid #e2e8f0; color: #475569; font-weight: 500;'>{category}</td>"
             f"  <td style='padding: 10px 12px; border-bottom: 1px solid #e2e8f0; color: #dc2626; font-weight: bold;'>${amount_num:.2f}</td>"
             f"  <td style='padding: 10px 12px; border-bottom: 1px solid #e2e8f0;'>{agent}</td>"
             f"  <td style='padding: 10px 12px; border-bottom: 1px solid #e2e8f0;'>{reason}</td>"
@@ -142,6 +144,7 @@ def generate_batch_digest(
         <tr>
           <th>Ticket ID</th>
           <th>Customer</th>
+          <th>Category</th>
           <th>Amount</th>
           <th>Agent</th>
           <th>Reason</th>

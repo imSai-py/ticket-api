@@ -47,6 +47,9 @@ def test_generate_batch_digest_with_pending_tickets(tmp_path, monkeypatch):
     assert digest["recipient"] == "ops-lead@company.com"
     assert "TCK-B101" in digest["body_table"]
     assert "TCK-B102" in digest["body_table"]
+    assert "Category" in digest["body_table"]
+    assert "Billing" in digest["body_table"]
+    assert "<th>Category</th>" in digest["html_body"]
     assert "$35.50" in digest["body_table"]
     assert "$120.00" in digest["body_table"]
     assert "ops_tracking_sheet.csv" in digest["spreadsheet_link"]
