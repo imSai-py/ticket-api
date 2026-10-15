@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from app.batch_digest import generate_batch_digest
 from app.escalation import (
     send_agent_action_notification,
+    send_agent_info_request_email,
     send_escalation_alert,
 )
 from app.retrieval import KBRetriever
@@ -658,7 +659,10 @@ def ops_approval_action(ticket_id: str, status: str = Query(...)) -> HTMLRespons
 
     # Notify assigned support agent of the manager decision
     try:
-        send_agent_action_notification(updated_record, action=approval_status.value)
+        if approval_status == ApprovalStatusEnum.NEEDS_INFO:
+            send_agent_info_request_email(updated_record)
+        else:
+            send_agent_action_notification(updated_record, action=approval_status.value)
     except (OSError, KeyError, ValueError) as err:
         logger.warning(
             "Could not dispatch agent decision notification for %s: %s",
