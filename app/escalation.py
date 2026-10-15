@@ -45,13 +45,19 @@ def dispatch_smtp_email(
             "message": "Pytest environment detected. Real SMTP suppressed.",
         }
 
-    smtp_host = os.getenv("SMTP_HOST")
+    smtp_host = os.getenv("SMTP_HOST") or os.getenv("SMTP_SERVER")
     smtp_port_raw = os.getenv("SMTP_PORT", "587")
-    smtp_user = os.getenv("SMTP_USER")
-    smtp_password = os.getenv("SMTP_PASSWORD")
+    smtp_user = os.getenv("SMTP_USER") or os.getenv("SMTP_USERNAME")
+    smtp_password = os.getenv("SMTP_PASSWORD") or os.getenv("SMTP_PASS")
     smtp_from = os.getenv("SMTP_FROM", smtp_user or "alerts@company.com")
 
     if not smtp_host or not smtp_user or not smtp_password:
+        logger.info(
+            "SMTP credentials not configured (host=%s, user=%s, pass=%s). Dispatched in mock mode.",
+            bool(smtp_host),
+            bool(smtp_user),
+            bool(smtp_password),
+        )
         return {
             "sent": False,
             "mode": "mock",
