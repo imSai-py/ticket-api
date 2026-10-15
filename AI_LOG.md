@@ -32,12 +32,28 @@ This document records the transparent usage of AI assistance across Task 2 and T
   - Enforced 4,000 character length budget and empty/whitespace input validation (`422 Unprocessable Entity`).
   - Added hallucination guardrails to filter out ungrounded article IDs.
   - Tested 10 real sample tickets (S1–S10), including prompt injection defenses (S7) and Spanish cross-lingual requests (S8).
-  - Established offline mock testing for pytest to guarantee zero external API calls or costs during CI/verification runs.
+### Task 4: Helpdesk Schema Ingestion & Production Basics
+- **Assistance**:
+  - Normalized daily helpdesk schema variations (`labels`, `customer_email`, `assigned_to`, `refund_amount`).
+  - Added production health check endpoint (`GET /health`), input validations, and error handlers.
+  - Implemented `DD/MM/YYYY` date formatting and USD refund normalization.
+- **Human Verification**:
+  - Verified unit test suite with offline mocks and zero test regressions.
+  - Validated edge cases: missing `resolved_at` dates and Excel file lock contention.
+
+### Task 5: Peer Code Review (Escalation Export)
+- **Assistance**:
+  - Ran parallel standards and spec reviews on Sam's pull request diff.
+  - Identified critical schema mismatches (`tags` vs. `labels`) and non-rectangular CSV footer rows.
+- **Human Verification**:
+  - Re-verified all line numbers directly against source diff.
+  - Provided kind, specific, actionable feedback in plain language following `review_template.md`.
 
 ---
 
 ## 3. Engineering Guardrails Enforced
 
-1. **Deterministic Test Suite**: All unit and integration tests (33 pytest, 4 Vitest) use offline mock responses.
+1. **Deterministic Test Suite**: All unit and integration tests use offline mock responses.
 2. **Zero Secret Leakage**: API keys remain strictly in environment variables; `.env` is ignored by git and verified by pre-commit checks.
 3. **Multi-Model Fallback Cascade**: Automatic graceful degradation if primary free-tier models encounter upstream 503 high-demand spikes.
+
