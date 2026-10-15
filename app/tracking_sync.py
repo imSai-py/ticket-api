@@ -423,6 +423,17 @@ class ResubmissionResolution(NamedTuple):
     notes: str
 
 
+def _is_needs_info_status(status: str) -> bool:
+    """Determine if a status string represents needs_info status."""
+    clean = str(status).strip()
+    try:
+        from app.schemas import ApprovalStatusEnum
+
+        return ApprovalStatusEnum.from_action(clean) == ApprovalStatusEnum.NEEDS_INFO
+    except ValueError:
+        return clean.lower() in ("needs info", "needs_info")
+
+
 def _resolve_resubmission_status_and_notes(
     existing_row: dict[str, Any] | None,
     ticket_payload: dict[str, Any],
@@ -453,21 +464,7 @@ def _resolve_resubmission_status_and_notes(
             existing_status = "Pending"
         existing_notes = str(existing_row.get("notes", "") or "")
 
-        is_needs_info = False
-        try:
-            from app.schemas import ApprovalStatusEnum
-
-            is_needs_info = (
-                ApprovalStatusEnum.from_action(existing_status)
-                == ApprovalStatusEnum.NEEDS_INFO
-            )
-        except ValueError:
-            is_needs_info = existing_status.strip().lower() in (
-                "needs info",
-                "needs_info",
-            )
-
-        is_resubmission = allow_resubmission and is_needs_info
+        is_resubmission = allow_resubmission and _is_needs_info_status(existing_status)
 
         if is_resubmission and (
             not provided_status
@@ -682,18 +679,7 @@ def get_needs_info_approvals(csv_path: str | None = None) -> list[dict[str, Any]
     """Retrieve all tickets in Needs Info status from the tracking spreadsheet."""
     path = csv_path or get_ops_tracking_path()
     rows = _read_all(path)
-    result = []
-    for r in rows:
-        st = str(r.get("status", "")).strip()
-        try:
-            from app.schemas import ApprovalStatusEnum
-
-            if ApprovalStatusEnum.from_action(st) == ApprovalStatusEnum.NEEDS_INFO:
-                result.append(r)
-        except ValueError:
-            if st.lower() in ("needs info", "needs_info"):
-                result.append(r)
-    return result
+    return [r for r in rows if _is_needs_info_status(r.get("status", ""))]
 
 
 def update_approval_status(
@@ -721,16 +707,30 @@ def update_approval_status(
             f"Cannot update ticket {ticket_id}: current status '{target.get('status')}' is terminal."
         )
 
+    # Spec L62-63: needs_info cannot transition directly to Approved or Rejected without agent re-submission
+    if _is_needs_info_status(current_status) and clean_new_status in (
+        "approved",
+        "rejected",
+    ):
+        raise ValueError(
+            f"Cannot transition ticket {ticket_id} from '{target.get('status')}' to '{new_status}'. Ticket requires agent follow-up and re-submission before approval."
+        )
+
     target["status"] = new_status
     target["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # Spec L47: approved refunds retain verified operational reason and agent sign-off
     if clean_new_status == "approved" and not notes:
-        agent_name = target.get("assigned_to") or target.get("agent") or "Support Agent"
-        signoff_note = f"Verified: Agent {agent_name} signed off"
-        existing_notes_str = str(target.get("notes") or "")
-        if signoff_note not in existing_notes_str:
-            notes = signoff_note
+        agent_name = (target.get("assigned_to") or target.get("agent") or "").strip()
+        if agent_name and agent_name.lower() not in (
+            "unassigned",
+            "support team",
+            "system",
+        ):
+            signoff_note = f"Verified: Agent {agent_name} signed off"
+            existing_notes_str = str(target.get("notes") or "")
+            if signoff_note not in existing_notes_str:
+                notes = signoff_note
 
     if notes:
         existing = str(target.get("notes") or "").strip()

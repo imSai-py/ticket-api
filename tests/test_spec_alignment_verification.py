@@ -123,6 +123,15 @@ def test_terminal_approval_status_transitions(tmp_path, monkeypatch):
     assert res_invalid.status_code == 400
     assert "terminal" in res_invalid.json()["detail"].lower()
 
+    # Spec L62-63: Transitioning needs_info directly to Approved without agent re-submission fails with 400
+    sync_ticket_to_spreadsheet(
+        {"ticket_id": "TCK-TERM-02", "status": "needs_info", "category": "Billing"},
+        csv_path=test_csv,
+    )
+    res_direct_approve = client.get("/ops/approvals/TCK-TERM-02/action?status=Approved")
+    assert res_direct_approve.status_code == 400
+    assert "re-submission" in res_direct_approve.json()["detail"].lower()
+
 
 def test_batch_ingest_does_not_reset_needs_info(tmp_path, monkeypatch):
     """Spec L29: Batch CSV ingest must not auto-resubmit needs_info tickets."""
