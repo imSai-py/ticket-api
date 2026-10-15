@@ -338,6 +338,12 @@ def _render_agent_notification_email(
 </body>
 </html>"""
 
+    logger.warning(
+        "Dispatched agent notification for ticket %s to %s (action: %s)",
+        ticket_id,
+        recipient,
+        action,
+    )
     smtp_res = dispatch_smtp_email(recipient, subject, body, html_body=html_body)
     res: dict[str, Any] = {
         "dispatched": True,
