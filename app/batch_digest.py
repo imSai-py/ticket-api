@@ -93,9 +93,9 @@ def generate_batch_digest(
             f"  <td style='padding: 10px 12px; border-bottom: 1px solid #e2e8f0;'>{agent}</td>"
             f"  <td style='padding: 10px 12px; border-bottom: 1px solid #e2e8f0;'>{reason}</td>"
             f"  <td style='padding: 10px 12px; border-bottom: 1px solid #e2e8f0; text-align: center; white-space: nowrap;'>"
-            f"    <a href='{approve_url}' style='background-color: #16a34a; color: #ffffff !important; padding: 6px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 12px; display: inline-block; margin-right: 6px;'>Approve</a>"
-            f"    <a href='{reject_url}' style='background-color: #dc2626; color: #ffffff !important; padding: 6px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 12px; display: inline-block; margin-right: 6px;'>Reject</a>"
-            f"    <a href='{need_info_url}' style='background-color: #d97706; color: #ffffff !important; padding: 6px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 12px; display: inline-block;'>Need More Info</a>"
+            f"    <a href='{approve_url}' style='background-color: #28a745; color: #ffffff !important; padding: 6px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 12px; display: inline-block; margin-right: 6px;'>Approve</a>"
+            f"    <a href='{reject_url}' style='background-color: #dc3545; color: #ffffff !important; padding: 6px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 12px; display: inline-block; margin-right: 6px;'>Reject</a>"
+            f"    <a href='{need_info_url}' style='background-color: #ffc107; color: #212529 !important; padding: 6px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 12px; display: inline-block;'>Need More Info</a>"
             f"  </td>"
             f"</tr>"
         )

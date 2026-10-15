@@ -97,3 +97,75 @@ def test_sync_ticket_request_schema_no_arbitrary_status():
     """Spec Scope: SyncTicketRequest does not expose arbitrary status injection field."""
     fields = SyncTicketRequest.model_fields
     assert "status" not in fields
+
+
+def test_terminal_approval_status_transitions(tmp_path, monkeypatch):
+    """Spec L60-61: Approved and Rejected are terminal states."""
+    test_csv = str(tmp_path / "terminal_test.csv")
+    monkeypatch.setenv("OPS_TRACKING_PATH", test_csv)
+    monkeypatch.setenv("OPS_TRACKING_CSV_PATH", test_csv)
+
+    sync_ticket_to_spreadsheet(
+        {"ticket_id": "TCK-TERM-01", "status": "Pending", "category": "Billing"},
+        csv_path=test_csv,
+    )
+
+    # Approve ticket
+    res1 = client.get("/ops/approvals/TCK-TERM-01/action?status=Approved")
+    assert res1.status_code == 200
+
+    # Idempotent re-approval succeeds
+    res_idempotent = client.get("/ops/approvals/TCK-TERM-01/action?status=Approved")
+    assert res_idempotent.status_code == 200
+
+    # Attempting to transition terminal Approved to needs_info fails with 400
+    res_invalid = client.get("/ops/approvals/TCK-TERM-01/action?status=needs_info")
+    assert res_invalid.status_code == 400
+    assert "terminal" in res_invalid.json()["detail"].lower()
+
+
+def test_batch_ingest_does_not_reset_needs_info(tmp_path, monkeypatch):
+    """Spec L29: Batch CSV ingest must not auto-resubmit needs_info tickets."""
+    from app.tracking_sync import (
+        get_needs_info_approvals,
+        sync_tickets_batch_to_spreadsheet,
+    )
+
+    test_csv = str(tmp_path / "batch_no_reset.csv")
+    monkeypatch.setenv("OPS_TRACKING_PATH", test_csv)
+    monkeypatch.setenv("OPS_TRACKING_CSV_PATH", test_csv)
+
+    sync_ticket_to_spreadsheet(
+        {"ticket_id": "TCK-BATCH-NI", "status": "needs_info", "category": "Billing"},
+        csv_path=test_csv,
+    )
+
+    # Batch import with default open status
+    sync_tickets_batch_to_spreadsheet(
+        [
+            {
+                "ticket_id": "TCK-BATCH-NI",
+                "customer_name": "Test User",
+                "category": "Billing",
+                "status": "open",
+            }
+        ],
+        csv_path=test_csv,
+    )
+
+    needs_info = get_needs_info_approvals(csv_path=test_csv)
+    assert len(needs_info) == 1
+    assert needs_info[0]["ticket_id"] == "TCK-BATCH-NI"
+
+
+def test_agent_recipient_email_resolution(monkeypatch):
+    """Spec L28: Automatic agent notification properly formats email without double domain."""
+    from app.escalation import _resolve_agent_recipient
+
+    monkeypatch.delenv("AGENT_NOTIFICATIONS_EMAIL", raising=False)
+    assert _resolve_agent_recipient("riya@example.com") == "riya@example.com"
+    assert (
+        _resolve_agent_recipient("Support Team", agent_email="dan@example.com")
+        == "dan@example.com"
+    )
+    assert _resolve_agent_recipient("Riya") == "riya@company.com"

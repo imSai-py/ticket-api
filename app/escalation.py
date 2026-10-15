@@ -2,6 +2,7 @@ import logging
 import os
 import smtplib
 import sys
+from dataclasses import dataclass
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any
@@ -188,9 +189,9 @@ def send_escalation_alert(
       <tr><td class="label">Reason:</td><td class="value">{reason}</td></tr>
     </table>
     <div class="actions">
-      <a href="{approve_url}" class="btn" style="background-color: #16a34a; color: #ffffff !important; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; margin-right: 8px;">✅ Approve</a>
-      <a href="{reject_url}" class="btn" style="background-color: #dc2626; color: #ffffff !important; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; margin-right: 8px;">❌ Reject</a>
-      <a href="{need_info_url}" class="btn" style="background-color: #d97706; color: #ffffff !important; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">⚠️ Need Info</a>
+      <a href="{approve_url}" class="btn" style="background-color: #28a745; color: #ffffff !important; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; margin-right: 8px;">✅ Approve</a>
+      <a href="{reject_url}" class="btn" style="background-color: #dc3545; color: #ffffff !important; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; margin-right: 8px;">❌ Reject</a>
+      <a href="{need_info_url}" class="btn" style="background-color: #ffc107; color: #212529 !important; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">⚠️ Need More Info</a>
     </div>
     <div class="footer">
       Automated operations alert &bull; Bitcot Operations System
@@ -229,25 +230,59 @@ def send_escalation_alert(
     }
 
 
+@dataclass
+class AgentCardTheme:
+    """Theme and layout attributes for agent notification card."""
+
+    badge_label: str
+    badge_color: str
+    greeting_text: str
+    box_title: str
+    box_bg: str
+    box_color: str
+    next_step: str
+
+
+def _resolve_agent_recipient(
+    assigned_to: str,
+    agent_email: str | None = None,
+    recipient_override: str | None = None,
+) -> str:
+    """Resolve destination email address for support agent notifications."""
+    if recipient_override:
+        return recipient_override
+    if agent_email and "@" in agent_email:
+        return agent_email
+    if assigned_to and "@" in assigned_to:
+        return assigned_to
+    if os.getenv("AGENT_NOTIFICATIONS_EMAIL"):
+        return os.getenv("AGENT_NOTIFICATIONS_EMAIL")
+    if assigned_to and assigned_to.lower() not in ("support team", "unknown", ""):
+        return f"{assigned_to.strip().lower()}@company.com"
+    return os.getenv("ESCALATION_MANAGER_EMAIL") or "support@company.com"
+
+
 def _render_agent_notification_email(
     ticket_id: str,
     customer: str,
     amount: str,
     assigned_to: str,
     reason: str,
-    badge_label: str,
-    badge_color: str,
-    greeting_text: str,
-    box_title: str,
-    box_bg: str,
-    box_color: str,
-    next_step: str,
+    theme: AgentCardTheme,
     recipient: str,
     subject: str,
     action: str,
     instructions: str | None = None,
 ) -> dict[str, Any]:
     """Helper to render and dispatch unified agent notification HTML emails."""
+    badge_label = theme.badge_label
+    badge_color = theme.badge_color
+    greeting_text = theme.greeting_text
+    box_title = theme.box_title
+    box_bg = theme.box_bg
+    box_color = theme.box_color
+    next_step = theme.next_step
+
     body = (
         f"========================================\n"
         f"NOTIFICATION: Ticket {ticket_id}\n"
@@ -322,11 +357,9 @@ def send_agent_action_notification(
     amount = ticket.get("refund_amount") or ticket.get("amount") or "0.00"
     reason = ticket.get("reason") or "Operational review"
 
-    recipient = (
-        recipient_override
-        or os.getenv("AGENT_NOTIFICATIONS_EMAIL")
-        or os.getenv("ESCALATION_MANAGER_EMAIL")
-        or f"{str(assigned_to).lower()}@company.com"
+    recipient = _resolve_agent_recipient(
+        str(assigned_to),
+        recipient_override=recipient_override,
     )
 
     action_lower = action.lower()
@@ -344,7 +377,7 @@ def send_agent_action_notification(
         "needs_info",
     ):
         action_verb = "MORE INFO REQUESTED"
-        badge_color = "#d97706"
+        badge_color = "#ffc107"
         next_step = f"Manager requires more information. Please contact {customer} to gather necessary verification details and update the ticket."
     else:
         action_verb = "REJECTED"
@@ -352,12 +385,7 @@ def send_agent_action_notification(
         next_step = f"Do not issue a refund. Please contact {customer} to communicate the rejection."
 
     subject = f"[DECISION: {action_verb}] Ticket {ticket_id} - {customer} (${amount})"
-    return _render_agent_notification_email(
-        ticket_id=ticket_id,
-        customer=customer,
-        amount=str(amount),
-        assigned_to=str(assigned_to),
-        reason=str(reason),
+    theme = AgentCardTheme(
         badge_label=f"MANAGER {action_verb}",
         badge_color=badge_color,
         greeting_text=f"Hello {assigned_to}, the operations manager has reviewed and marked this ticket <strong>{action}</strong>.",
@@ -365,6 +393,14 @@ def send_agent_action_notification(
         box_bg="#f1f5f9",
         box_color="#334155",
         next_step=next_step,
+    )
+    return _render_agent_notification_email(
+        ticket_id=ticket_id,
+        customer=customer,
+        amount=str(amount),
+        assigned_to=str(assigned_to),
+        reason=str(reason),
+        theme=theme,
         recipient=recipient,
         subject=subject,
         action=action,
@@ -393,11 +429,10 @@ def send_agent_info_request_email(
         assigned_to = ticket.get("assigned_to") or ticket.get("agent") or "Support Team"
         amount_val = ticket.get("refund_amount") or ticket.get("amount") or "0.00"
         reason_val = ticket.get("reason") or "Operational review"
-        target_agent = (
-            recipient_override
-            or os.getenv("AGENT_NOTIFICATIONS_EMAIL")
-            or os.getenv("ESCALATION_MANAGER_EMAIL")
-            or f"{str(assigned_to).lower()}@company.com"
+        target_agent = _resolve_agent_recipient(
+            str(assigned_to),
+            agent_email=ticket.get("customer_email"),
+            recipient_override=recipient_override,
         )
     else:
         ticket_id = str(ticket_id_or_dict)
@@ -409,27 +444,20 @@ def send_agent_info_request_email(
         )
         reason_val = str(reason or "Operational review")
         assigned_to = str(agent_email or "Support Team")
-        target_agent = (
-            recipient_override
-            or agent_email
-            or os.getenv("AGENT_NOTIFICATIONS_EMAIL")
-            or os.getenv("ESCALATION_MANAGER_EMAIL")
-            or f"{str(assigned_to).lower()}@company.com"
+        target_agent = _resolve_agent_recipient(
+            str(assigned_to),
+            agent_email=agent_email,
+            recipient_override=recipient_override,
         )
 
-    badge_color = "#d97706"
+    badge_color = "#ffc107"
     next_step = (
         f"{instructions} Please contact {customer} to gather verification details, "
         f"update the ticket context, and re-submit for approval."
     )
     subject = f"[ACTION REQUIRED: More Info Needed] Ticket {ticket_id} - {customer} (${amount_val})"
 
-    return _render_agent_notification_email(
-        ticket_id=ticket_id,
-        customer=customer,
-        amount=str(amount_val),
-        assigned_to=str(assigned_to),
-        reason=str(reason_val),
+    theme = AgentCardTheme(
         badge_label="MANAGER REQUEST: MORE INFO",
         badge_color=badge_color,
         greeting_text=f"Hello {assigned_to}, the operations manager reviewed this billing escalation and requested more information before making an approval decision.",
@@ -437,6 +465,14 @@ def send_agent_info_request_email(
         box_bg="#fef3c7",
         box_color="#92400e",
         next_step=next_step,
+    )
+    return _render_agent_notification_email(
+        ticket_id=ticket_id,
+        customer=customer,
+        amount=str(amount_val),
+        assigned_to=str(assigned_to),
+        reason=str(reason_val),
+        theme=theme,
         recipient=target_agent,
         subject=subject,
         action="Needs Info",

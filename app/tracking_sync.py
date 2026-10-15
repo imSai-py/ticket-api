@@ -5,7 +5,7 @@ import re
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from app.schemas import OpsTicketRecord
 
@@ -414,6 +414,15 @@ def extract_operational_reason(subject: str, text: str) -> str:
     return clean_text[:80]
 
 
+class ResubmissionResolution(NamedTuple):
+    """Encapsulates resolved status, timestamps, and notes for tracking sync."""
+
+    status: str
+    created_at: str
+    updated_at: str
+    notes: str
+
+
 def _resolve_resubmission_status_and_notes(
     existing_row: dict[str, Any] | None,
     ticket_payload: dict[str, Any],
@@ -422,7 +431,8 @@ def _resolve_resubmission_status_and_notes(
     customer_name: str,
     verification_note: str,
     amount_val: float,
-) -> tuple[str, str, str, str]:
+    allow_resubmission: bool = True,
+) -> ResubmissionResolution:
     """Helper to resolve status, created_at, updated_at, and audit notes uniformly across sync paths."""
     provided_status_raw = ticket_payload.get("status")
     provided_status = (
@@ -443,9 +453,8 @@ def _resolve_resubmission_status_and_notes(
             existing_status = "Pending"
         existing_notes = str(existing_row.get("notes", "") or "")
 
-        is_resubmission = existing_status.strip().lower() in (
-            "needs info",
-            "needs_info",
+        is_resubmission = allow_resubmission and (
+            existing_status.strip().lower() in ("needs info", "needs_info")
         )
 
         if is_resubmission and (
@@ -455,7 +464,12 @@ def _resolve_resubmission_status_and_notes(
         ):
             status_val = "Pending"
             updated_time = now_local
-        elif provided_status:
+        elif provided_status and provided_status.lower() not in (
+            "open",
+            "pending",
+            "none",
+            "",
+        ):
             status_val = provided_status
             updated_time = now_local
         else:
@@ -501,7 +515,12 @@ def _resolve_resubmission_status_and_notes(
         notes_parts.append(verification_note)
 
     notes_val = "; ".join([p for p in notes_parts if p.strip()])
-    return status_val, created_time, updated_time, notes_val
+    return ResubmissionResolution(
+        status=status_val,
+        created_at=created_time,
+        updated_at=updated_time,
+        notes=notes_val,
+    )
 
 
 def sync_ticket_to_spreadsheet(
@@ -663,6 +682,18 @@ def update_approval_status(
     if not target:
         raise ValueError(f"Ticket with ID {ticket_id} not found in tracking sheet.")
 
+    current_status = str(target.get("status", "")).strip().lower()
+    clean_new_status = new_status.strip().lower()
+
+    # Spec L60-61: Approved and Rejected are terminal states
+    if (
+        current_status in ("approved", "rejected")
+        and current_status != clean_new_status
+    ):
+        raise ValueError(
+            f"Cannot update ticket {ticket_id}: current status '{target.get('status')}' is terminal."
+        )
+
     target["status"] = new_status
     target["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     if notes:
@@ -755,6 +786,7 @@ def sync_tickets_batch_to_spreadsheet(
             customer_name=customer_name,
             verification_note=verification_note,
             amount_val=amount_val,
+            allow_resubmission=False,
         )
 
         provided_reason = ticket.get("reason", "")

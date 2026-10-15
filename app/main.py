@@ -233,7 +233,13 @@ def health_check() -> JSONResponse:
         checks["knowledge_base"] = "error: knowledge base unavailable"
 
     # 4. Digest scheduler readiness
-    checks["digest_scheduler"] = "ready"
+    from app.scheduler import check_scheduler_health
+
+    if check_scheduler_health():
+        checks["digest_scheduler"] = "ready"
+    else:
+        is_healthy = False
+        checks["digest_scheduler"] = "error: digest scheduler not ready"
 
     status_str = "healthy" if is_healthy else "degraded"
     status_code = 200 if is_healthy else 503
@@ -678,9 +684,12 @@ def ops_approval_action(ticket_id: str, status: str = Query(...)) -> HTMLRespons
             notes=action_note,
         )
     except ValueError as e:
-        raise HTTPException(
-            status_code=404, detail=f"Ticket not found: {clean_ticket_id}"
-        ) from e
+        err_msg = str(e)
+        if "not found" in err_msg.lower():
+            raise HTTPException(
+                status_code=404, detail=f"Ticket not found: {clean_ticket_id}"
+            ) from e
+        raise HTTPException(status_code=400, detail=err_msg) from e
 
     # Notify assigned support agent of the manager decision
     try:
