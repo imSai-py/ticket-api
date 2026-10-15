@@ -431,7 +431,7 @@ def _is_needs_info_status(status: str) -> bool:
 
         return ApprovalStatusEnum.from_action(clean) == ApprovalStatusEnum.NEEDS_INFO
     except ValueError:
-        return clean.lower() in ("needs info", "needs_info")
+        return False
 
 
 def _resolve_resubmission_status_and_notes(
@@ -716,7 +716,22 @@ def update_approval_status(
             f"Cannot transition ticket {ticket_id} from '{target.get('status')}' to '{new_status}'. Ticket requires agent follow-up and re-submission before approval."
         )
 
-    target["status"] = new_status
+    # Spec L41 & L5: Payout legitimacy check - require clear operational reason before approval
+    if clean_new_status == "approved":
+        amt_str = str(target.get("refund_amount") or target.get("amount") or "0.0")
+        refund_amt, _ = extract_amount(amt_str)
+        has_reason = bool(str(target.get("reason") or "").strip())
+        existing_notes = str(target.get("notes") or "")
+        if (
+            refund_amt > 0
+            and not has_reason
+            and "Needs operational justification" in existing_notes
+        ):
+            raise ValueError(
+                f"Cannot approve ticket {ticket_id}: operational justification is required before payout approval."
+            )
+
+    target["status"] = sanitize_cell(new_status)
     target["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # Spec L47: approved refunds retain verified operational reason and agent sign-off

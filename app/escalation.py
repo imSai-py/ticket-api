@@ -402,7 +402,7 @@ def send_agent_action_notification(
 
 
 def send_agent_info_request_email(
-    ticket_id_or_dict: dict[str, Any] | str,
+    ticket_id: dict[str, Any] | str,
     customer_name: str | None = None,
     amount: float | str | None = None,
     reason: str | None = None,
@@ -414,9 +414,9 @@ def send_agent_info_request_email(
 
     Supports both dictionary payload and positional arguments per Spec L71.
     """
-    if isinstance(ticket_id_or_dict, dict):
-        ticket = ticket_id_or_dict
-        ticket_id = ticket.get("ticket_id", "Unknown")
+    if isinstance(ticket_id, dict):
+        ticket = ticket_id
+        resolved_ticket_id = ticket.get("ticket_id", "Unknown")
         customer = (
             ticket.get("customer_name") or ticket.get("customer_email") or "Customer"
         )
@@ -429,7 +429,7 @@ def send_agent_info_request_email(
             recipient_override=recipient_override,
         )
     else:
-        ticket_id = str(ticket_id_or_dict)
+        resolved_ticket_id = str(ticket_id)
         customer = str(customer_name or "Customer")
         amount_val = (
             f"{float(amount):.2f}"
@@ -449,7 +449,7 @@ def send_agent_info_request_email(
         f"{instructions} Please contact {customer} to gather verification details, "
         f"update the ticket context, and re-submit for approval."
     )
-    subject = f"[ACTION REQUIRED: More Info Needed] Ticket {ticket_id} - {customer} (${amount_val})"
+    subject = f"[ACTION REQUIRED: More Info Needed] Ticket {resolved_ticket_id} - {customer} (${amount_val})"
 
     theme = AgentCardTheme(
         badge_label="MANAGER REQUEST: MORE INFO",
@@ -461,7 +461,7 @@ def send_agent_info_request_email(
         next_step=next_step,
     )
     return _render_agent_notification_email(
-        ticket_id=ticket_id,
+        ticket_id=resolved_ticket_id,
         customer=customer,
         amount=str(amount_val),
         assigned_to=str(assigned_to),

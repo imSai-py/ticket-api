@@ -210,5 +210,33 @@ describe("App Triage Component", () => {
     expect(screen.getByTestId("batch-result-card")).toHaveTextContent("TCK-5007");
     expect(screen.getByTestId("batch-result-card")).toHaveTextContent("$480.00");
   });
+
+  it("re-submits updated ticket with supplemental context and displays confirmation", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ticket: { ticket_id: "TCK-1001", status: "Pending" },
+      }),
+    } as Response);
+
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText(/ticket id for re-submission/i), {
+      target: { value: "TCK-1001" },
+    });
+    fireEvent.change(screen.getByLabelText(/supplemental context/i), {
+      target: { value: "Verified double billing transaction ID #TX99821." },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /re-submit ticket/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("resubmit-success")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("resubmit-success")).toHaveTextContent(
+      "Ticket TCK-1001 re-submitted successfully"
+    );
+  });
 });
 
