@@ -80,10 +80,13 @@ def generate_batch_digest(
             f"{base_url}/ops/approvals/{t['ticket_id']}/action?status=Approved"
         )
         reject_url = f"{base_url}/ops/approvals/{t['ticket_id']}/action?status=Rejected"
+        need_info_url = (
+            f"{base_url}/ops/approvals/{t['ticket_id']}/action?status=needs_info"
+        )
 
         data_lines.append(
             f"{t['ticket_id']:<12} | {customer:<20} | ${amount_num:<9.2f} | {agent:<12} | {reason}\n"
-            f"  -> Actions: [Approve: {approve_url}]  [Reject: {reject_url}]"
+            f"  -> Actions: [Approve: {approve_url}]  [Reject: {reject_url}]  [Need More Info: {need_info_url}]"
         )
 
         html_rows.append(
@@ -95,7 +98,8 @@ def generate_batch_digest(
             f"  <td style='padding: 10px 12px; border-bottom: 1px solid #e2e8f0;'>{reason}</td>"
             f"  <td style='padding: 10px 12px; border-bottom: 1px solid #e2e8f0; text-align: center; white-space: nowrap;'>"
             f"    <a href='{approve_url}' style='background-color: #16a34a; color: #ffffff !important; padding: 6px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 12px; display: inline-block; margin-right: 6px;'>Approve</a>"
-            f"    <a href='{reject_url}' style='background-color: #dc2626; color: #ffffff !important; padding: 6px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 12px; display: inline-block;'>Reject</a>"
+            f"    <a href='{reject_url}' style='background-color: #dc2626; color: #ffffff !important; padding: 6px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 12px; display: inline-block; margin-right: 6px;'>Reject</a>"
+            f"    <a href='{need_info_url}' style='background-color: #d97706; color: #ffffff !important; padding: 6px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 12px; display: inline-block;'>Need More Info</a>"
             f"  </td>"
             f"</tr>"
         )

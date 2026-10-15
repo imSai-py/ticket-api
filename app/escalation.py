@@ -130,6 +130,7 @@ def send_escalation_alert(
     base_url = (os.getenv("BASE_URL") or "http://localhost:8000").rstrip("/")
     approve_url = f"{base_url}/ops/approvals/{ticket_id}/action?status=Approved"
     reject_url = f"{base_url}/ops/approvals/{ticket_id}/action?status=Rejected"
+    need_info_url = f"{base_url}/ops/approvals/{ticket_id}/action?status=needs_info"
 
     subject = f"[URGENT ESCALATION] Ticket {ticket_id} - {customer}"
     body = (
@@ -142,8 +143,9 @@ def send_escalation_alert(
         f"Amount:        ${amount:.2f}\n"
         f"Reason:        {reason}\n\n"
         "ACTION REQUIRED: Immediate management review and approval required.\n\n"
-        f"Approve: {approve_url}\n"
-        f"Reject:  {reject_url}\n"
+        f"Approve:        {approve_url}\n"
+        f"Reject:         {reject_url}\n"
+        f"Need More Info: {need_info_url}\n"
     )
 
     html_body = f"""<!DOCTYPE html>
@@ -162,7 +164,7 @@ def send_escalation_alert(
     .value {{ font-weight: 500; color: #0f172a; }}
     .amount-highlight {{ color: #dc2626; font-weight: bold; font-size: 16px; }}
     .actions {{ text-align: center; padding-top: 16px; border-top: 1px solid #e2e8f0; }}
-    .btn {{ display: inline-block; padding: 12px 28px; font-size: 14px; font-weight: bold; text-decoration: none; border-radius: 6px; margin: 0 8px; }}
+    .btn {{ display: inline-block; padding: 12px 24px; font-size: 14px; font-weight: bold; text-decoration: none; border-radius: 6px; margin: 0 6px; }}
     .footer {{ margin-top: 24px; font-size: 12px; color: #94a3b8; text-align: center; }}
   </style>
 </head>
@@ -180,8 +182,9 @@ def send_escalation_alert(
       <tr><td class="label">Reason:</td><td class="value">{reason}</td></tr>
     </table>
     <div class="actions">
-      <a href="{approve_url}" class="btn" style="background-color: #16a34a; color: #ffffff !important; padding: 12px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; margin-right: 12px;">✅ Approve</a>
-      <a href="{reject_url}" class="btn" style="background-color: #dc2626; color: #ffffff !important; padding: 12px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">❌ Reject</a>
+      <a href="{approve_url}" class="btn" style="background-color: #16a34a; color: #ffffff !important; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; margin-right: 8px;">✅ Approve</a>
+      <a href="{reject_url}" class="btn" style="background-color: #dc2626; color: #ffffff !important; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; margin-right: 8px;">❌ Reject</a>
+      <a href="{need_info_url}" class="btn" style="background-color: #d97706; color: #ffffff !important; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">⚠️ Need Info</a>
     </div>
     <div class="footer">
       Automated operations alert &bull; Bitcot Operations System
