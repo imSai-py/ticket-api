@@ -1,5 +1,13 @@
 # Specification: Production Basics and Resilience for Billing Ops Sync
 
+## Daily Approach Plan
+
+1. Analyze Day 4 Part 1 requirements and draft stakeholder update for Mara.
+2. Formulate GitHub issues and technical specification for production basics slice.
+3. Implement `GET /health` diagnostic endpoint checking storage, ticket data, and knowledge base.
+4. Enforce strict input validation, domain enums, and centralized exception handlers for client errors.
+5. Document clean-machine environment setup in README and verify full test suite.
+
 ## Problem Statement
 
 The billing operations sync service, batch approval digest, and one-click approval workflows are functionally complete. However, running these services in production environments introduces operational risks:
@@ -42,6 +50,9 @@ Harden the application by implementing production foundations:
    - Add a catch-all handler for unexpected internal exceptions returning HTTP 500 with logged incident context without leaking internal stack traces.
 4. **Clean-Machine Documentation**:
    - Update `ticket-api/README.md` to provide full copy-paste terminal workflows for Python virtual environments, dependency installation, `.env` setup, dev server launch, frontend launch, test suite verification, and ops endpoint usage.
+5. **Configurable Storage & Domain Enumerations**:
+   - Support `OPS_TRACKING_PATH` environment variable in `get_ops_tracking_path()` to ensure configurable file storage path resolution across test and deployment environments.
+   - Define `ApprovalStatusEnum` (`Pending`, `Approved`, `Rejected`) to model ticket lifecycle states without string primitive obsession.
 
 ## Testing Decisions
 
