@@ -8,6 +8,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,9 +17,15 @@ from app.batch_digest import generate_batch_digest
 from app.escalation import send_escalation_alert
 from app.retrieval import KBRetriever
 from app.scheduler import start_daily_digest_scheduler
-from app.schemas import SyncTicketRequest, TriageRequest, TriageResponse
+from app.schemas import (
+    ApprovalStatusEnum,
+    SyncTicketRequest,
+    TriageRequest,
+    TriageResponse,
+)
 from app.tracking_sync import (
     SpreadsheetLockedError,
+    check_storage_health,
     get_pending_approvals,
     sanitize_cell,
     sync_ticket_to_spreadsheet,
@@ -95,6 +102,43 @@ def spreadsheet_locked_handler(
     )
 
 
+@app.exception_handler(RequestValidationError)
+def request_validation_error_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    errors = exc.errors()
+    messages = []
+    for err in errors:
+        loc = " -> ".join(str(item) for item in err.get("loc", []) if item != "body")
+        msg = err.get("msg", "Invalid value")
+        messages.append(f"{loc}: {msg}" if loc else msg)
+    detail_str = (
+        f"Input validation failed: {'; '.join(messages)}"
+        if messages
+        else "Input validation failed."
+    )
+    return JSONResponse(
+        status_code=422,
+        content={"detail": detail_str},
+    )
+
+
+@app.exception_handler(Exception)
+def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception(
+        "Unhandled internal exception on %s %s: %s",
+        request.method,
+        request.url.path,
+        exc,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Internal server error occurred. Please try again or contact support."
+        },
+    )
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -104,6 +148,49 @@ app.add_middleware(
 )
 
 retriever = KBRetriever()
+
+
+@app.get("/health")
+def health_check() -> JSONResponse:
+    """System health check endpoint with subsystem diagnostics."""
+    checks: dict[str, str] = {}
+    is_healthy = True
+
+    # 1. Tracking sheet storage
+    try:
+        check_storage_health()
+        checks["storage"] = "accessible"
+    except (SpreadsheetLockedError, OSError, PermissionError) as e:
+        is_healthy = False
+        checks["storage"] = f"error: {e}"
+
+    # 2. Tickets seed data
+    if TICKETS is not None:
+        checks["tickets_data"] = "loaded"
+    else:
+        is_healthy = False
+        checks["tickets_data"] = "error: tickets not loaded"
+
+    # 3. Knowledge base retrieval index
+    if retriever is not None and getattr(retriever, "articles", None):
+        checks["knowledge_base"] = "indexed"
+    else:
+        is_healthy = False
+        checks["knowledge_base"] = "error: knowledge base unavailable"
+
+    status_str = "healthy" if is_healthy else "degraded"
+    status_code = 200 if is_healthy else 503
+
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "status": status_str,
+            "version": "1.0.0",
+            "storage": checks["storage"],
+            "tickets_data": checks["tickets_data"],
+            "knowledge_base": checks["knowledge_base"],
+        },
+    )
 
 
 def to_public_ticket_dict(ticket):
@@ -167,19 +254,25 @@ def ops_send_digest() -> dict[str, Any]:
 
 @app.get("/ops/approvals/{ticket_id}/action", response_class=HTMLResponse)
 def ops_approval_action(ticket_id: str, status: str = Query(...)) -> HTMLResponse:
-    if status not in ("Approved", "Rejected"):
+    clean_ticket_id = ticket_id.strip()
+    if not clean_ticket_id:
         raise HTTPException(
             status_code=400,
-            detail="Invalid status. Status must be 'Approved' or 'Rejected'.",
+            detail="Ticket ID cannot be empty or whitespace.",
         )
     try:
-        update_approval_status(ticket_id, new_status=status)
+        approval_status = ApprovalStatusEnum.from_action(status)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    try:
+        update_approval_status(clean_ticket_id, new_status=approval_status.value)
     except ValueError as e:
         raise HTTPException(
-            status_code=404, detail=f"Ticket not found: {ticket_id}"
+            status_code=404, detail=f"Ticket not found: {clean_ticket_id}"
         ) from e
 
-    receipt_html = f"<html><body><h3>✓ Ticket {ticket_id} marked {status}. You may close this tab.</h3></body></html>"
+    receipt_html = f"<html><body><h3>✓ Ticket {clean_ticket_id} marked {approval_status.value}. You may close this tab.</h3></body></html>"
     return HTMLResponse(content=receipt_html, status_code=200)
 
 
