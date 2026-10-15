@@ -144,6 +144,9 @@ class SyncTicketRequest(BaseModel):
     refund_amount: float | str | None = Field(
         default=None, description="Pre-populated refund amount"
     )
+    status: str | None = Field(
+        default=None, description="Optional explicit ticket status"
+    )
 
     model_config = ConfigDict(use_enum_values=True)
 
