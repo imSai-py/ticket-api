@@ -19,7 +19,7 @@ if ($connections) {
                 Stop-Process -Id $pidToKill -Force -ErrorAction SilentlyContinue
                 Start-Sleep -Milliseconds 500
             } catch {
-                Write-Warning "Could not stop PID $pidToKill: $_"
+                Write-Warning ("Could not stop PID $pidToKill : " + $_.Exception.Message)
             }
         }
     }
