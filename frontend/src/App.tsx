@@ -31,6 +31,32 @@ export interface HelpdeskIngestResult {
   escalated: boolean;
 }
 
+export interface BatchIngestRecord {
+  ticket_id: string;
+  created_at: string;
+  status: string;
+  priority: string;
+  category: string;
+  assigned_to: string;
+  customer_email: string;
+  labels: string;
+  refund_amount: string;
+}
+
+export interface BatchIngestResult {
+  status: string;
+  processed_count: number;
+  records: BatchIngestRecord[];
+  escalated_count: number;
+  escalations: Array<{
+    ticket_id: string;
+    recipient: string;
+    subject: string;
+    amount?: number;
+    alert_type?: string;
+  }>;
+}
+
 interface ValidationErrorDetail {
   msg?: string;
   type?: string;
@@ -64,6 +90,12 @@ export function App() {
   const [ingestLoading, setIngestLoading] = useState(false);
   const [ingestError, setIngestError] = useState<string | null>(null);
   const [ingestResult, setIngestResult] = useState<HelpdeskIngestResult | null>(null);
+
+  // Batch Ingestion state
+  const [batchFile, setBatchFile] = useState<File | null>(null);
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [batchError, setBatchError] = useState<string | null>(null);
+  const [batchResult, setBatchResult] = useState<BatchIngestResult | null>(null);
 
   const env = (import.meta as unknown as { env?: CustomImportMetaEnv }).env;
   const defaultBaseUrl =
@@ -191,6 +223,58 @@ export function App() {
       );
     } finally {
       setIngestLoading(false);
+    }
+  };
+
+  const handleLoadSampleBatch = () => {
+    const sampleCsv = `ticket_id,created_at,status,priority,category,assigned_to,customer_email,labels,refund_amount
+TCK-5007,2026-10-05 13:05,in_progress,urgent,Refunds,riya,omar.ali@example.com,escalated,480.00
+TCK-5084,2026-10-05 13:21,in_progress,normal,Login,riya,jo.marsh@example.com,,0.00
+TCK-5041,2026-10-05 13:25,open,normal,Refunds,lia,max.obi@example.com,esc,80.00
+TCK-5052,2026-10-05 13:55,open,normal,Refunds,sam,hana.ito@example.com,esc,250.00
+TCK-5043,2026-10-05 14:02,resolved,normal,Technical,riya,ava.stone@example.com,,0.00`;
+    const file = new File([sampleCsv], "helpdesk_export_sample.csv", {
+      type: "text/csv",
+    });
+    setBatchFile(file);
+    setBatchError(null);
+  };
+
+  const handleBatchSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBatchError(null);
+    setBatchResult(null);
+
+    if (!batchFile) {
+      setBatchError("Please select a CSV file or load a sample first.");
+      return;
+    }
+
+    setBatchLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", batchFile);
+
+      const response = await fetch(`${apiBaseUrl}/ops/ingest-batch`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errData = (await response.json().catch(() => ({}))) as {
+          detail?: string;
+        };
+        throw new Error(errData.detail || `HTTP error ${response.status}`);
+      }
+
+      const data: BatchIngestResult = await response.json();
+      setBatchResult(data);
+    } catch (err: unknown) {
+      setBatchError(
+        err instanceof Error ? err.message : "Failed to import batch CSV."
+      );
+    } finally {
+      setBatchLoading(false);
     }
   };
 
@@ -384,6 +468,158 @@ export function App() {
             <div style={{ fontSize: "0.9rem", color: "#1e293b", background: "#ffffff", padding: "0.75rem", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
               <strong>AI Suggested Reply:</strong>
               <p style={{ margin: "0.4rem 0 0 0", color: "#475569" }}>{ingestResult.suggested_reply}</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Batch CSV Ingest Card */}
+      <div className="card" style={{ border: "2px solid #059669", marginBottom: "2rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+          <div>
+            <h2 style={{ margin: 0, color: "#065f46", fontSize: "1.25rem" }}>
+              📁 Batch Helpdesk CSV Ingestion & Escalation Routing
+            </h2>
+            <p style={{ margin: "0.25rem 0 0 0", color: "#4b5563", fontSize: "0.9rem" }}>
+              Bulk upload historical Helpdesk exports. Automatically normalizes 9 standard columns, resolves priority hierarchy, and triggers instant manager alerts.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleLoadSampleBatch}
+            style={{
+              background: "#d1fae5",
+              color: "#065f46",
+              border: "1px solid #a7f3d0",
+              borderRadius: "6px",
+              padding: "0.4rem 0.8rem",
+              fontSize: "0.85rem",
+              cursor: "pointer",
+              fontWeight: 600,
+              whiteSpace: "nowrap",
+            }}
+          >
+            📋 Load Sample Batch CSV
+          </button>
+        </div>
+
+        <form onSubmit={handleBatchSubmit} noValidate>
+          <div style={{ display: "flex", gap: "1rem", alignItems: "center", flexWrap: "wrap", marginBottom: "1rem" }}>
+            <input
+              type="file"
+              accept=".csv"
+              aria-label="Upload CSV File"
+              onChange={(e) => {
+                if (e.target.files && e.target.files[0]) {
+                  setBatchFile(e.target.files[0]);
+                  setBatchError(null);
+                }
+              }}
+              style={{ padding: "0.5rem", border: "1px solid #d1d5db", borderRadius: "6px" }}
+            />
+            {batchFile && (
+              <span style={{ fontSize: "0.9rem", color: "#047857", fontWeight: 600 }}>
+                Selected: {batchFile.name} ({(batchFile.size / 1024).toFixed(1)} KB)
+              </span>
+            )}
+            <button
+              type="submit"
+              disabled={batchLoading || !batchFile}
+              aria-label="Upload & Ingest Batch CSV"
+              style={{
+                background: batchLoading || !batchFile ? "#9ca3af" : "#059669",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: "6px",
+                padding: "0.55rem 1.25rem",
+                fontWeight: 600,
+                cursor: batchLoading || !batchFile ? "not-allowed" : "pointer",
+              }}
+            >
+              {batchLoading ? "Processing Batch CSV..." : "🚀 Upload & Ingest Batch CSV"}
+            </button>
+          </div>
+        </form>
+
+        {batchError && (
+          <div className="alert-error" role="alert" style={{ marginTop: "0.5rem" }}>
+            <strong>Batch Ingestion Notice:</strong> {batchError}
+          </div>
+        )}
+
+        {batchResult && (
+          <div
+            data-testid="batch-result-card"
+            style={{
+              marginTop: "1.25rem",
+              background: "#f0fdf4",
+              border: "1px solid #bbf7d0",
+              borderRadius: "8px",
+              padding: "1rem",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" }}>
+              <span style={{ fontWeight: 700, color: "#166534", fontSize: "1.05rem" }}>
+                ✓ Successfully Ingested {batchResult.processed_count} Tickets to Spreadsheet
+              </span>
+              {batchResult.escalated_count > 0 && (
+                <span style={{ background: "#dc2626", color: "#fff", padding: "0.25rem 0.75rem", borderRadius: "4px", fontSize: "0.85rem", fontWeight: 700 }}>
+                  ⚠️ {batchResult.escalated_count} URGENT ESCALATIONS TRIGGERED
+                </span>
+              )}
+            </div>
+
+            {batchResult.escalations && batchResult.escalations.length > 0 && (
+              <div style={{ marginBottom: "1rem", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "6px", padding: "0.75rem" }}>
+                <strong style={{ color: "#991b1b", fontSize: "0.9rem" }}>Dispatched Escalation Alerts:</strong>
+                <ul style={{ margin: "0.4rem 0 0 1.2rem", padding: 0, fontSize: "0.85rem", color: "#7f1d1d" }}>
+                  {batchResult.escalations.map((esc, i) => (
+                    <li key={i}>
+                      <strong>{esc.ticket_id}</strong>: {esc.subject} → {esc.recipient}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem", background: "#ffffff" }}>
+                <thead>
+                  <tr style={{ background: "#f8fafc", textAlign: "left", borderBottom: "2px solid #e2e8f0" }}>
+                    <th style={{ padding: "0.5rem" }}>Ticket ID</th>
+                    <th style={{ padding: "0.5rem" }}>Priority</th>
+                    <th style={{ padding: "0.5rem" }}>Category</th>
+                    <th style={{ padding: "0.5rem" }}>Refund Amount</th>
+                    <th style={{ padding: "0.5rem" }}>Customer</th>
+                    <th style={{ padding: "0.5rem" }}>Agent</th>
+                    <th style={{ padding: "0.5rem" }}>Labels</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {batchResult.records.slice(0, 10).map((r) => (
+                    <tr key={r.ticket_id} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                      <td style={{ padding: "0.4rem 0.5rem", fontWeight: 600 }}>{r.ticket_id}</td>
+                      <td style={{ padding: "0.4rem 0.5rem" }}>
+                        <span className={`badge badge-priority-${r.priority.toLowerCase()}`}>
+                          {r.priority.toUpperCase()}
+                        </span>
+                      </td>
+                      <td style={{ padding: "0.4rem 0.5rem" }}>{r.category}</td>
+                      <td style={{ padding: "0.4rem 0.5rem", fontWeight: 600, color: parseFloat(r.refund_amount) > 0 ? "#b45309" : "#64748b" }}>
+                        ${parseFloat(r.refund_amount || "0").toFixed(2)}
+                      </td>
+                      <td style={{ padding: "0.4rem 0.5rem" }}>{r.customer_email || "Customer"}</td>
+                      <td style={{ padding: "0.4rem 0.5rem" }}>{r.assigned_to || "Unassigned"}</td>
+                      <td style={{ padding: "0.4rem 0.5rem" }}>{r.labels || "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {batchResult.records.length > 10 && (
+                <div style={{ textAlign: "center", fontSize: "0.8rem", color: "#64748b", marginTop: "0.5rem" }}>
+                  Showing first 10 of {batchResult.records.length} records. All records persisted to <code>ops_tracking_sheet.csv</code>.
+                </div>
+              )}
             </div>
           </div>
         )}

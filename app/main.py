@@ -1,5 +1,6 @@
 import asyncio
 import csv
+import io
 import logging
 import os
 import re
@@ -9,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -21,6 +22,7 @@ from app.retrieval import KBRetriever
 from app.scheduler import start_daily_digest_scheduler
 from app.schemas import (
     ApprovalStatusEnum,
+    BatchIngestResponse,
     HelpdeskQueryIngestRequest,
     HelpdeskQueryIngestResponse,
     PriorityEnum,
@@ -38,6 +40,7 @@ from app.tracking_sync import (
     resolve_ticket_priority_and_escalation,
     sanitize_cell,
     sync_ticket_to_spreadsheet,
+    sync_tickets_batch_to_spreadsheet,
     update_approval_status,
 )
 from app.triage_ai import classify_and_reply
@@ -477,6 +480,125 @@ def ingest_helpdesk_query(
         suggested_reply=ai_res.suggested_reply,
         record=row,
         escalated=is_urgent,
+    )
+
+
+@app.post("/ops/ingest-batch", response_model=BatchIngestResponse)
+async def ingest_batch_csv(
+    request: Request,
+    file: UploadFile | None = File(None),  # noqa: B008
+    refund_threshold: float = Query(
+        200.0,
+        description="Refund threshold in USD to trigger escalation alerts",
+    ),
+) -> BatchIngestResponse:
+    """Ingest multiple helpdesk tickets from CSV file upload or raw CSV text, batch sync and trigger escalations."""
+    csv_text = ""
+    if file is not None and getattr(file, "filename", None):
+        file_bytes = await file.read()
+        if not file_bytes or not file_bytes.strip():
+            raise HTTPException(status_code=400, detail="Empty CSV file provided.")
+        csv_text = file_bytes.decode("utf-8-sig", errors="replace")
+    else:
+        content_type = request.headers.get("content-type", "")
+        if "application/json" in content_type:
+            try:
+                body = await request.json()
+            except (ValueError, TypeError, KeyError):
+                body = {}
+            if body.get("csv_content"):
+                csv_text = body["csv_content"]
+            elif body.get("file_path"):
+                p = Path(body["file_path"])
+                if not p.exists():
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"File not found: {body['file_path']}",
+                    )
+                csv_text = p.read_text(encoding="utf-8-sig")
+            if "refund_threshold" in body and body["refund_threshold"] is not None:
+                try:
+                    refund_threshold = float(body["refund_threshold"])
+                except (ValueError, TypeError):
+                    pass
+        elif "text/csv" in content_type or "text/plain" in content_type:
+            raw_body = await request.body()
+            csv_text = raw_body.decode("utf-8-sig", errors="replace")
+
+    if not csv_text.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Empty CSV file or content provided. Please upload a CSV file or provide csv_content.",
+        )
+
+    f = io.StringIO(csv_text.strip())
+    reader = csv.DictReader(f)
+    if not reader.fieldnames:
+        raise HTTPException(
+            status_code=400, detail="Malformed CSV: missing header row."
+        )
+
+    parsed_rows: list[dict[str, Any]] = []
+    for r in reader:
+        clean_row = {k.strip(): (v.strip() if v else "") for k, v in r.items() if k}
+        if any(clean_row.values()):
+            parsed_rows.append(clean_row)
+
+    if not parsed_rows:
+        raise HTTPException(
+            status_code=400,
+            detail="Empty CSV file provided: no data rows found.",
+        )
+
+    synced_records = sync_tickets_batch_to_spreadsheet(parsed_rows)
+
+    escalations: list[dict[str, Any]] = []
+    for row in synced_records:
+        alert = send_escalation_alert(row, refund_threshold=refund_threshold)
+        if alert.get("dispatched") is True:
+            escalations.append(alert)
+
+    for row in synced_records:
+        existing = next(
+            (t for t in TICKETS if t.get("ticket_id") == row["ticket_id"]), None
+        )
+        if existing:
+            existing.update(
+                {
+                    "category": row.get("category"),
+                    "priority": row.get("priority"),
+                    "status": row.get("status"),
+                    "agent": row.get("assigned_to"),
+                    "assigned_to": row.get("assigned_to"),
+                    "customer_email": row.get("customer_email"),
+                    "refund_amount": row.get("refund_amount"),
+                    "labels": row.get("labels"),
+                }
+            )
+        else:
+            TICKETS.insert(
+                0,
+                {
+                    "ticket_id": row["ticket_id"],
+                    "created_at": row["created_at"],
+                    "created": parse_iso_timestamp(row["created_at"]),
+                    "category": row.get("category"),
+                    "priority": row.get("priority"),
+                    "status": row.get("status"),
+                    "agent": row.get("assigned_to"),
+                    "assigned_to": row.get("assigned_to"),
+                    "customer_email": row.get("customer_email"),
+                    "labels": row.get("labels"),
+                    "refund_amount": row.get("refund_amount"),
+                },
+            )
+
+    return BatchIngestResponse(
+        status="success",
+        processed_count=len(synced_records),
+        records=synced_records,
+        escalated_count=len(escalations),
+        escalations=escalations,
     )
 
 

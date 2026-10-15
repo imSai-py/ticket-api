@@ -202,3 +202,33 @@ class HelpdeskQueryIngestResponse(BaseModel):
     )
 
     model_config = ConfigDict(use_enum_values=True)
+
+
+class BatchIngestRequest(BaseModel):
+    """Optional JSON payload for batch ingestion."""
+
+    csv_content: str | None = Field(default=None, description="Raw CSV string content")
+    file_path: str | None = Field(default=None, description="Path to CSV file on disk")
+    refund_threshold: float = Field(
+        default=200.0, description="Escalation refund threshold in USD"
+    )
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class BatchIngestResponse(BaseModel):
+    """Structured response for batch ingestion."""
+
+    status: str = Field(default="success", description="Processing status")
+    processed_count: int = Field(default=0, description="Number of tickets processed")
+    records: list[dict[str, Any]] = Field(
+        default_factory=list, description="List of processed ticket records"
+    )
+    escalated_count: int = Field(
+        default=0, description="Number of tickets that triggered escalation"
+    )
+    escalations: list[dict[str, Any]] = Field(
+        default_factory=list, description="Escalation alerts dispatched"
+    )
+
+    model_config = ConfigDict(use_enum_values=True)
