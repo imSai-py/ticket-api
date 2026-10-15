@@ -7,16 +7,12 @@ from app.schemas import ApprovalStatusEnum
 client = TestClient(app, raise_server_exceptions=False)
 
 
-def test_health_payload_schema_has_flat_subsystem_keys():
-    """Spec fix: GET /health must provide top-level subsystem keys as specified."""
+def test_health_payload_schema_has_no_nested_checks_dictionary():
+    """Spec fix: GET /health payload must not contain redundant nested checks dictionary."""
     response = client.get("/health")
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "healthy"
-    assert data["version"] == "1.0.0"
-    assert data["storage"] == "accessible"
-    assert data["tickets_data"] == "loaded"
-    assert data["knowledge_base"] == "indexed"
+    assert "checks" not in data
 
 
 def test_request_validation_error_handler_formats_concise_string():

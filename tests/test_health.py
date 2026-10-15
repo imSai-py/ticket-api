@@ -10,7 +10,7 @@ def test_health_check_healthy():
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "healthy"
-    assert "version" in data
+    assert data["version"] == "1.0.0"
     assert data["storage"] == "accessible"
     assert data["tickets_data"] == "loaded"
     assert data["knowledge_base"] == "indexed"
