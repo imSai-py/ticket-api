@@ -26,15 +26,27 @@ class ApprovalStatusEnum(str, Enum):
     APPROVED = "Approved"
     REJECTED = "Rejected"
     PENDING = "Pending"
+    NEEDS_INFO = "Needs Info"
 
     @classmethod
     def from_action(cls, value: str) -> "ApprovalStatusEnum":
         """Validate and convert an action string into an allowed approval status."""
-        if value not in (cls.APPROVED.value, cls.REJECTED.value):
-            raise ValueError(
-                f"Invalid status. Status must be '{cls.APPROVED.value}' or '{cls.REJECTED.value}'."
-            )
-        return cls(value)
+        val_clean = value.strip().lower().replace("_", " ")
+        if val_clean in ("approved", "approve"):
+            return cls.APPROVED
+        elif val_clean in ("rejected", "reject"):
+            return cls.REJECTED
+        elif val_clean in (
+            "needs info",
+            "need info",
+            "need more info",
+            "needs more info",
+            "needs_info",
+        ):
+            return cls.NEEDS_INFO
+        raise ValueError(
+            f"Invalid status. Status must be '{cls.APPROVED.value}', '{cls.REJECTED.value}', or '{cls.NEEDS_INFO.value}'."
+        )
 
 
 class TriageRequest(BaseModel):

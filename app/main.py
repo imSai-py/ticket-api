@@ -671,8 +671,20 @@ def ops_approval_action(ticket_id: str, status: str = Query(...)) -> HTMLRespons
             t["status"] = approval_status.value
             break
 
-    receipt_html = f"<html><body><h3>✓ Ticket {clean_ticket_id} marked {approval_status.value}. You may close this tab.</h3></body></html>"
+    if approval_status == ApprovalStatusEnum.NEEDS_INFO:
+        status_label = "as needing more info. Support agent notified."
+    else:
+        status_label = f"{approval_status.value}."
+
+    receipt_html = f"<html><body><h3>✓ Ticket {clean_ticket_id} marked {status_label} You may close this tab.</h3></body></html>"
     return HTMLResponse(content=receipt_html, status_code=200)
+
+
+@app.get("/ops/approvals/action", response_class=HTMLResponse)
+def ops_approval_action_query(
+    ticket_id: str = Query(...), status: str = Query(...)
+) -> HTMLResponse:
+    return ops_approval_action(ticket_id=ticket_id, status=status)
 
 
 @app.post("/triage", response_model=TriageResponse)
