@@ -169,3 +169,67 @@ def test_agent_recipient_email_resolution(monkeypatch):
         == "dan@example.com"
     )
     assert _resolve_agent_recipient("Riya") == "riya@company.com"
+
+
+def test_escalation_alert_dictionary_contains_need_info_url():
+    """Spec L26 & L69: Alert return dictionary includes need_info_url."""
+    from app.escalation import send_escalation_alert
+
+    ticket = {
+        "ticket_id": "TCK-RET-01",
+        "category": "Billing",
+        "priority": "urgent",
+        "amount": 250.0,
+        "reason": "Test dispute",
+    }
+    alert = send_escalation_alert(ticket, dispatch_smtp=False)
+    assert alert["dispatched"] is True
+    assert "need_info_url" in alert
+    assert "ticket_id=TCK-RET-01&status=needs_info" in alert["need_info_url"]
+
+
+def test_agent_info_request_uses_agent_email_not_customer_email(monkeypatch):
+    """Spec L28: Agent info request never routes internal notification to customer email."""
+    from app.escalation import send_agent_info_request_email
+
+    monkeypatch.delenv("AGENT_NOTIFICATIONS_EMAIL", raising=False)
+    ticket = {
+        "ticket_id": "TCK-CUST-NOTIF",
+        "customer_name": "Customer User",
+        "customer_email": "customer@external.com",
+        "assigned_to": "agent_sarah",
+        "amount": 150.0,
+        "category": "Billing",
+    }
+    res = send_agent_info_request_email(ticket)
+    assert res["dispatched"] is True
+    assert res["recipient"] == "agent_sarah@company.com"
+    assert res["recipient"] != "customer@external.com"
+
+
+def test_refund_requires_operational_justification(tmp_path, monkeypatch):
+    """Spec L30 & L41: Missing operational reasons for refund trigger justification note."""
+    test_csv = str(tmp_path / "reason_test.csv")
+    monkeypatch.setenv("OPS_TRACKING_PATH", test_csv)
+    monkeypatch.setenv("OPS_TRACKING_CSV_PATH", test_csv)
+
+    sync_ticket_to_spreadsheet(
+        {
+            "ticket_id": "TCK-REASON-01",
+            "category": "Billing",
+            "amount": 120.0,
+            "reason": "",
+            "assigned_to": "Dan",
+        },
+        csv_path=test_csv,
+    )
+
+    from app.tracking_sync import _read_all, update_approval_status
+
+    rows = _read_all(test_csv)
+    target = next(r for r in rows if r["ticket_id"] == "TCK-REASON-01")
+    assert "Needs operational justification" in target["notes"]
+
+    # Verify agent sign-off in notes upon approval per Spec L47
+    updated = update_approval_status("TCK-REASON-01", "Approved", csv_path=test_csv)
+    assert "Verified: Agent Dan signed off" in updated["notes"]

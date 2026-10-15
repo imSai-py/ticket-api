@@ -1,7 +1,8 @@
 """Data validation schemas for ticket-api."""
 
+import os
 from enum import Enum
-from typing import Any
+from typing import Any, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -47,6 +48,26 @@ class ApprovalStatusEnum(str, Enum):
         raise ValueError(
             f"Invalid status. Status must be '{cls.APPROVED.value}', '{cls.REJECTED.value}', or '{cls.NEEDS_INFO.value}'."
         )
+
+
+class ApprovalActionUrls(NamedTuple):
+    """Container for standardized approval action links."""
+
+    approve_url: str
+    reject_url: str
+    need_info_url: str
+
+
+def build_approval_action_urls(
+    ticket_id: str, base_url: str | None = None
+) -> ApprovalActionUrls:
+    """Build standardized query-parameter approval action URLs."""
+    root = (base_url or os.getenv("BASE_URL") or "http://localhost:8000").rstrip("/")
+    return ApprovalActionUrls(
+        approve_url=f"{root}/ops/approvals/action?ticket_id={ticket_id}&status=Approved",
+        reject_url=f"{root}/ops/approvals/action?ticket_id={ticket_id}&status=Rejected",
+        need_info_url=f"{root}/ops/approvals/action?ticket_id={ticket_id}&status=needs_info",
+    )
 
 
 class TriageRequest(BaseModel):

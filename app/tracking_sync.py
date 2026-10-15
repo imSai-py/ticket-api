@@ -453,9 +453,21 @@ def _resolve_resubmission_status_and_notes(
             existing_status = "Pending"
         existing_notes = str(existing_row.get("notes", "") or "")
 
-        is_resubmission = allow_resubmission and (
-            existing_status.strip().lower() in ("needs info", "needs_info")
-        )
+        is_needs_info = False
+        try:
+            from app.schemas import ApprovalStatusEnum
+
+            is_needs_info = (
+                ApprovalStatusEnum.from_action(existing_status)
+                == ApprovalStatusEnum.NEEDS_INFO
+            )
+        except ValueError:
+            is_needs_info = existing_status.strip().lower() in (
+                "needs info",
+                "needs_info",
+            )
+
+        is_resubmission = allow_resubmission and is_needs_info
 
         if is_resubmission and (
             not provided_status
@@ -507,7 +519,15 @@ def _resolve_resubmission_status_and_notes(
         if not any(email_note in part for part in notes_parts):
             notes_parts.append(email_note)
 
-    # Spec L30: enforce capturing verification notes for zero/missing amounts
+    # Spec L30 & L41: enforce capturing verification notes for missing operational reasons or zero amounts
+    reason_text = str(ticket_payload.get("reason") or "").strip()
+    if amount_val > 0.0 and (
+        not reason_text or reason_text.lower() in ("no reason provided", "unknown")
+    ):
+        reason_note = "Needs operational justification"
+        if not any(reason_note in part for part in notes_parts):
+            notes_parts.append(reason_note)
+
     if amount_val == 0.0 and not verification_note:
         verification_note = "Needs amount verification"
 
@@ -662,11 +682,18 @@ def get_needs_info_approvals(csv_path: str | None = None) -> list[dict[str, Any]
     """Retrieve all tickets in Needs Info status from the tracking spreadsheet."""
     path = csv_path or get_ops_tracking_path()
     rows = _read_all(path)
-    return [
-        r
-        for r in rows
-        if r.get("status", "").strip().lower() in ("needs info", "needs_info")
-    ]
+    result = []
+    for r in rows:
+        st = str(r.get("status", "")).strip()
+        try:
+            from app.schemas import ApprovalStatusEnum
+
+            if ApprovalStatusEnum.from_action(st) == ApprovalStatusEnum.NEEDS_INFO:
+                result.append(r)
+        except ValueError:
+            if st.lower() in ("needs info", "needs_info"):
+                result.append(r)
+    return result
 
 
 def update_approval_status(
@@ -696,6 +723,15 @@ def update_approval_status(
 
     target["status"] = new_status
     target["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Spec L47: approved refunds retain verified operational reason and agent sign-off
+    if clean_new_status == "approved" and not notes:
+        agent_name = target.get("assigned_to") or target.get("agent") or "Support Agent"
+        signoff_note = f"Verified: Agent {agent_name} signed off"
+        existing_notes_str = str(target.get("notes") or "")
+        if signoff_note not in existing_notes_str:
+            notes = signoff_note
+
     if notes:
         existing = str(target.get("notes") or "").strip()
         if existing and notes not in existing:

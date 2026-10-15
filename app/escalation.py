@@ -7,7 +7,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any
 
-from app.schemas import OpsTicketRecord
+from app.schemas import ApprovalStatusEnum, OpsTicketRecord, build_approval_action_urls
 from app.tracking_sync import is_ticket_urgent
 
 logger = logging.getLogger(__name__)
@@ -129,15 +129,10 @@ def send_escalation_alert(
     )
 
     base_url = (os.getenv("BASE_URL") or "http://localhost:8000").rstrip("/")
-    approve_url = (
-        f"{base_url}/ops/approvals/action?ticket_id={ticket_id}&status=Approved"
-    )
-    reject_url = (
-        f"{base_url}/ops/approvals/action?ticket_id={ticket_id}&status=Rejected"
-    )
-    need_info_url = (
-        f"{base_url}/ops/approvals/action?ticket_id={ticket_id}&status=needs_info"
-    )
+    action_urls = build_approval_action_urls(ticket_id, base_url)
+    approve_url = action_urls.approve_url
+    reject_url = action_urls.reject_url
+    need_info_url = action_urls.need_info_url
 
     subject = f"[URGENT ESCALATION] Ticket {ticket_id} - {customer}"
     body = (
@@ -227,6 +222,7 @@ def send_escalation_alert(
         "smtp": smtp_res,
         "approve_url": approve_url,
         "reject_url": reject_url,
+        "need_info_url": need_info_url,
     }
 
 
@@ -362,20 +358,18 @@ def send_agent_action_notification(
         recipient_override=recipient_override,
     )
 
-    action_lower = action.lower()
-    if action_lower in ("approved", "approve"):
+    try:
+        approval_status = ApprovalStatusEnum.from_action(action)
+    except ValueError:
+        approval_status = None
+
+    if approval_status == ApprovalStatusEnum.APPROVED:
         action_verb = "APPROVED"
         badge_color = "#16a34a"
         next_step = (
             f"You are authorized to execute the refund of ${amount} to {customer}."
         )
-    elif action_lower in (
-        "needs info",
-        "need info",
-        "need more info",
-        "needs more info",
-        "needs_info",
-    ):
+    elif approval_status == ApprovalStatusEnum.NEEDS_INFO:
         action_verb = "MORE INFO REQUESTED"
         badge_color = "#ffc107"
         next_step = f"Manager requires more information. Please contact {customer} to gather necessary verification details and update the ticket."
@@ -431,7 +425,7 @@ def send_agent_info_request_email(
         reason_val = ticket.get("reason") or "Operational review"
         target_agent = _resolve_agent_recipient(
             str(assigned_to),
-            agent_email=ticket.get("customer_email"),
+            agent_email=ticket.get("agent_email"),
             recipient_override=recipient_override,
         )
     else:
