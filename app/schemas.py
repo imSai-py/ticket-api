@@ -26,6 +26,15 @@ class ApprovalStatusEnum(str, Enum):
     REJECTED = "Rejected"
     PENDING = "Pending"
 
+    @classmethod
+    def from_action(cls, value: str) -> "ApprovalStatusEnum":
+        """Validate and convert an action string into an allowed approval status."""
+        if value not in (cls.APPROVED.value, cls.REJECTED.value):
+            raise ValueError(
+                f"Invalid status. Status must be '{cls.APPROVED.value}' or '{cls.REJECTED.value}'."
+            )
+        return cls(value)
+
 
 class TriageRequest(BaseModel):
     """Incoming request for ticket triage."""

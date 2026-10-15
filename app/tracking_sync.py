@@ -36,7 +36,7 @@ def get_ops_tracking_path() -> str:
     )
 
 
-DEFAULT_CSV_PATH = get_ops_tracking_path()
+DEFAULT_CSV_PATH = os.path.join("data", "ops_tracking_sheet.csv")
 
 
 def check_storage_health(csv_path: str | None = None) -> None:
@@ -222,8 +222,7 @@ def get_next_ticket_id(csv_path: str | None = None) -> str:
     """Generate the next sequential ticket ID (e.g. TCK-1020)."""
     base_dir = Path(__file__).resolve().parent.parent
     sample_path = base_dir / "data" / "tickets_sample.csv"
-    tracking_path = csv_path or os.getenv("OPS_TRACKING_CSV_PATH", DEFAULT_CSV_PATH)
-
+    tracking_path = csv_path or get_ops_tracking_path()
     max_sample = _find_max_ticket_number(sample_path)
     max_tracking = _find_max_ticket_number(tracking_path)
     highest = max(max_sample, max_tracking)
@@ -265,7 +264,7 @@ def sync_ticket_to_spreadsheet(
     ticket: dict[str, Any], csv_path: str | None = None
 ) -> dict[str, Any]:
     """Sync a ticket into the operations tracking spreadsheet."""
-    path = csv_path or os.getenv("OPS_TRACKING_CSV_PATH", DEFAULT_CSV_PATH)
+    path = csv_path or get_ops_tracking_path()
     rows = _read_all(path)
     now_local = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -355,7 +354,7 @@ def sync_ticket_to_spreadsheet(
 
 def get_pending_approvals(csv_path: str | None = None) -> list[dict[str, Any]]:
     """Retrieve all tickets in Pending status from the tracking spreadsheet."""
-    path = csv_path or os.getenv("OPS_TRACKING_CSV_PATH", DEFAULT_CSV_PATH)
+    path = csv_path or get_ops_tracking_path()
     rows = _read_all(path)
     return [r for r in rows if r["status"] == "Pending"]
 
@@ -367,7 +366,7 @@ def update_approval_status(
     csv_path: str | None = None,
 ) -> dict[str, Any]:
     """Update the status of a specific ticket in the tracking spreadsheet."""
-    path = csv_path or os.getenv("OPS_TRACKING_CSV_PATH", DEFAULT_CSV_PATH)
+    path = csv_path or get_ops_tracking_path()
     rows = _read_all(path)
     target = next((r for r in rows if r["ticket_id"] == ticket_id), None)
     if not target:
