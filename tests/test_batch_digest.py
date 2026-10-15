@@ -47,6 +47,9 @@ def test_generate_batch_digest_with_pending_tickets(tmp_path, monkeypatch):
     assert digest["recipient"] == "ops-lead@company.com"
     assert "TCK-B101" in digest["body_table"]
     assert "TCK-B102" in digest["body_table"]
+    assert "Category" in digest["body_table"]
+    assert "Billing" in digest["body_table"]
+    assert "<th>Category</th>" in digest["html_body"]
     assert "$35.50" in digest["body_table"]
     assert "$120.00" in digest["body_table"]
     assert "ops_tracking_sheet.csv" in digest["spreadsheet_link"]
@@ -103,3 +106,36 @@ def test_post_ops_send_digest_empty(tmp_path, monkeypatch):
     assert data["has_pending"] is False
     assert data["dispatched"] is False
     assert data["pending_count"] == 0
+
+
+def test_generate_batch_digest_excludes_needs_info_tickets():
+    """Spec L39: Tickets marked as needs_info must be excluded from pending approval digests."""
+    tickets = [
+        {
+            "ticket_id": "TCK-P1",
+            "category": "Billing",
+            "status": "open",
+            "amount": 100.0,
+            "customer_name": "Active User",
+        },
+        {
+            "ticket_id": "TCK-NI1",
+            "category": "Billing",
+            "status": "needs_info",
+            "amount": 200.0,
+            "customer_name": "Needs Info User",
+        },
+        {
+            "ticket_id": "TCK-AP1",
+            "category": "Billing",
+            "status": "Approved",
+            "amount": 300.0,
+            "customer_name": "Approved User",
+        },
+    ]
+    digest = generate_batch_digest(tickets=tickets, send_email=False)
+    assert digest["has_pending"] is True
+    assert digest["pending_count"] == 1
+    assert "TCK-P1" in digest["body_table"]
+    assert "TCK-NI1" not in digest["body_table"]
+    assert "TCK-AP1" not in digest["body_table"]

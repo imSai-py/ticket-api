@@ -97,6 +97,15 @@ export function App() {
   const [batchError, setBatchError] = useState<string | null>(null);
   const [batchResult, setBatchResult] = useState<BatchIngestResult | null>(null);
 
+  // Support Agent Re-submission state
+  const [resubmitTicketId, setResubmitTicketId] = useState("");
+  const [resubmitContext, setResubmitContext] = useState("");
+  const [resubmitAmount, setResubmitAmount] = useState("");
+  const [resubmitAgent, setResubmitAgent] = useState("");
+  const [resubmitLoading, setResubmitLoading] = useState(false);
+  const [resubmitError, setResubmitError] = useState<string | null>(null);
+  const [resubmitSuccess, setResubmitSuccess] = useState<string | null>(null);
+
   const env = (import.meta as unknown as { env?: CustomImportMetaEnv }).env;
   const defaultBaseUrl =
     typeof window !== "undefined" && window.location.port === "5173"
@@ -278,6 +287,56 @@ TCK-5043,2026-10-05 14:02,resolved,normal,Technical,riya,ava.stone@example.com,,
     }
   };
 
+  const handleResubmitSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resubmitTicketId.trim()) {
+      setResubmitError("Ticket ID is required for re-submission.");
+      return;
+    }
+    if (!resubmitContext.trim()) {
+      setResubmitError("Supplemental context / operational justification is required.");
+      return;
+    }
+    setResubmitLoading(true);
+    setResubmitError(null);
+    setResubmitSuccess(null);
+    try {
+      const payload: Record<string, unknown> = {
+        ticket_id: resubmitTicketId.trim(),
+        reason: resubmitContext.trim(),
+        agent: resubmitAgent.trim() || "Support Agent",
+      };
+      if (resubmitAmount.trim()) {
+        const parsed = parseFloat(resubmitAmount.replace(/[^0-9.]/g, ""));
+        if (!isNaN(parsed)) {
+          payload.amount = parsed;
+        }
+      }
+      const response = await fetch(`${apiBaseUrl}/ops/sync-ticket`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        detail?: string;
+        ticket?: { ticket_id?: string; status?: string };
+      };
+      if (!response.ok) {
+        setResubmitError(data?.detail || "Re-submission failed.");
+      } else {
+        setResubmitSuccess(
+          `Ticket ${resubmitTicketId} re-submitted successfully and returned to Pending queue for manager approval.`
+        );
+      }
+    } catch (err: unknown) {
+      setResubmitError(
+        err instanceof Error ? err.message : "Failed to re-submit ticket."
+      );
+    } finally {
+      setResubmitLoading(false);
+    }
+  };
+
   return (
     <div className="container">
       <nav
@@ -293,17 +352,9 @@ TCK-5043,2026-10-05 14:02,resolved,normal,Technical,riya,ava.stone@example.com,,
         }}
       >
         <strong>Support Hub:</strong>
-        <a href="/triage-ui/" style={{ color: "#2563eb", fontWeight: 700, textDecoration: "none" }}>
+        <span style={{ color: "#2563eb", fontWeight: 700 }}>
           🤖 AI Ticket Assistant
-        </a>
-        <span>|</span>
-        <a href={apiBaseUrl ? `${apiBaseUrl}/` : "/"} style={{ color: "#475569", fontWeight: 600, textDecoration: "none" }}>
-          📊 Ticket Dashboard
-        </a>
-        <span>|</span>
-        <a href={apiBaseUrl ? `${apiBaseUrl}/docs` : "/docs"} target="_blank" rel="noreferrer" style={{ color: "#475569", textDecoration: "none" }}>
-          📖 API Documentation
-        </a>
+        </span>
       </nav>
       <h1>AI Support Ticket Assistant</h1>
       <p>Review customer support tickets with automated category detection, urgency levels, and recommended customer replies.</p>
@@ -621,6 +672,98 @@ TCK-5043,2026-10-05 14:02,resolved,normal,Technical,riya,ava.stone@example.com,,
                 </div>
               )}
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* Support Agent Re-submission Card */}
+      <div className="card" style={{ border: "2px solid #0d9488", marginBottom: "2rem" }}>
+        <h2 style={{ margin: "0 0 0.5rem 0", color: "#0f766e", fontSize: "1.25rem" }}>
+          🔄 Support Agent Ticket Re-submission & Verification
+        </h2>
+        <p style={{ fontSize: "0.9rem", color: "#64748b", margin: "0 0 1rem 0" }}>
+          Re-submit tickets flagged with "Need More Info" with supplemental customer details and verified operational justification. Moves the ticket back to Pending for the next manager approval digest.
+        </p>
+
+        <form onSubmit={handleResubmitSubmit} noValidate>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+            <div className="form-group">
+              <label htmlFor="resubmit-ticket-id">Ticket ID *</label>
+              <input
+                id="resubmit-ticket-id"
+                type="text"
+                aria-label="Ticket ID for Re-submission"
+                placeholder="e.g. TCK-1001"
+                value={resubmitTicketId}
+                onChange={(e) => setResubmitTicketId(e.target.value)}
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="resubmit-agent">Support Agent *</label>
+              <input
+                id="resubmit-agent"
+                type="text"
+                aria-label="Agent Name"
+                placeholder="e.g. Riya"
+                value={resubmitAgent}
+                onChange={(e) => setResubmitAgent(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="resubmit-amount">Refund Amount USD (Optional)</label>
+            <input
+              id="resubmit-amount"
+              type="text"
+              aria-label="Refund Amount"
+              placeholder="e.g. 150.00"
+              value={resubmitAmount}
+              onChange={(e) => setResubmitAmount(e.target.value)}
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="resubmit-context">Supplemental Context & Operational Justification *</label>
+            <textarea
+              id="resubmit-context"
+              aria-label="Supplemental Context"
+              placeholder="Explain verified customer circumstances, merchant gateway transaction IDs, or billing audit details..."
+              value={resubmitContext}
+              onChange={(e) => setResubmitContext(e.target.value)}
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={resubmitLoading}
+            aria-label="Re-submit Ticket"
+            style={{ background: "#0d9488", color: "#fff", fontWeight: 600 }}
+          >
+            {resubmitLoading ? "Submitting Context..." : "Re-submit Ticket for Manager Review"}
+          </button>
+        </form>
+
+        {resubmitError && (
+          <div className="alert-error" role="alert" style={{ marginTop: "1rem" }}>
+            <strong>Notice:</strong> {resubmitError}
+          </div>
+        )}
+
+        {resubmitSuccess && (
+          <div
+            data-testid="resubmit-success"
+            style={{
+              background: "#f0fdf4",
+              border: "1px solid #bbf7d0",
+              color: "#166534",
+              padding: "1rem",
+              borderRadius: "6px",
+              marginTop: "1rem",
+            }}
+          >
+            ✓ {resubmitSuccess}
           </div>
         )}
       </div>

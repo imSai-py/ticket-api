@@ -5,7 +5,7 @@ import re
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from app.schemas import OpsTicketRecord
 
@@ -414,6 +414,164 @@ def extract_operational_reason(subject: str, text: str) -> str:
     return clean_text[:80]
 
 
+class ResubmissionResolution(NamedTuple):
+    """Encapsulates resolved status, timestamps, and notes for tracking sync."""
+
+    status: str
+    created_at: str
+    updated_at: str
+    notes: str
+
+
+class ResubmissionContext(NamedTuple):
+    """Context bundle of ticket metadata used during status and notes resolution."""
+
+    customer_email: str
+    customer_name: str
+    verification_note: str
+    amount_val: float
+
+
+def _is_needs_info_status(status: str) -> bool:
+    """Determine if a status string represents needs_info status."""
+    clean = str(status).strip()
+    try:
+        from app.schemas import ApprovalStatusEnum
+
+        return ApprovalStatusEnum.from_action(clean) == ApprovalStatusEnum.NEEDS_INFO
+    except ValueError:
+        return False
+
+
+def _resolve_resubmission_status_and_notes(
+    existing_row: dict[str, Any] | None,
+    ticket_payload: dict[str, Any],
+    now_local: str,
+    ctx: ResubmissionContext,
+    allow_resubmission: bool = True,
+) -> ResubmissionResolution:
+    """Helper to resolve status, created_at, updated_at, and audit notes uniformly across sync paths."""
+    customer_email = ctx.customer_email
+    customer_name = ctx.customer_name
+    verification_note = ctx.verification_note
+    amount_val = ctx.amount_val
+    provided_status_raw = ticket_payload.get("status")
+    provided_status = (
+        str(provided_status_raw).strip()
+        if provided_status_raw is not None
+        and str(provided_status_raw).strip() not in ("", "None")
+        else None
+    )
+
+    if existing_row is not None:
+        created_time = (
+            ticket_payload.get("created_at")
+            or existing_row.get("created_at")
+            or now_local
+        )
+        existing_status = str(existing_row.get("status", "Pending"))
+        if existing_status == "None":
+            existing_status = "Pending"
+        existing_notes = str(existing_row.get("notes", "") or "")
+
+        is_resubmission = allow_resubmission and _is_needs_info_status(existing_status)
+
+        if is_resubmission and (
+            not provided_status
+            or provided_status.lower()
+            in ("pending", "open", "needs info", "needs_info")
+        ):
+            status_val = "Pending"
+            updated_time = now_local
+        elif provided_status and provided_status.lower() not in (
+            "open",
+            "pending",
+            "none",
+            "",
+        ):
+            status_val = provided_status
+            updated_time = now_local
+        else:
+            status_val = existing_status
+            updated_time = existing_row.get("updated_at") or now_local
+    else:
+        created_time = ticket_payload.get("created_at") or now_local
+        updated_time = ""
+        status_val = provided_status or "Pending"
+        existing_notes = ""
+        is_resubmission = False
+
+    explicit_notes = str(ticket_payload.get("notes") or "").strip()
+    notes_parts: list[str] = []
+    if existing_notes:
+        existing_tokens = [p.strip() for p in existing_notes.split(";") if p.strip()]
+        reason_text_check = str(ticket_payload.get("reason") or "").strip()
+        if reason_text_check and reason_text_check.lower() not in (
+            "no reason provided",
+            "unknown",
+            "none",
+        ):
+            existing_tokens = [
+                p
+                for p in existing_tokens
+                if "needs operational justification" not in p.lower()
+            ]
+        if amount_val > 0.0:
+            existing_tokens = [
+                p
+                for p in existing_tokens
+                if "needs amount verification" not in p.lower()
+            ]
+        notes_parts.extend(existing_tokens)
+
+    if explicit_notes:
+        if is_resubmission and " at " not in explicit_notes:
+            formatted_explicit = f"{explicit_notes} at {now_local}"
+        else:
+            formatted_explicit = explicit_notes
+        if (
+            formatted_explicit not in existing_notes
+            and formatted_explicit not in notes_parts
+        ):
+            notes_parts.append(formatted_explicit)
+    elif is_resubmission:
+        reason_text = str(ticket_payload.get("reason") or "").strip()
+        if reason_text:
+            resubmit_note = f"Agent resubmitted ticket at {now_local}: {reason_text}"
+        else:
+            resubmit_note = f"Agent resubmitted ticket at {now_local}"
+        if resubmit_note not in existing_notes and resubmit_note not in notes_parts:
+            notes_parts.append(resubmit_note)
+
+    if customer_email and customer_email != customer_name:
+        email_note = f"email: {customer_email}"
+        if not any(email_note in part for part in notes_parts):
+            notes_parts.append(email_note)
+
+    # Spec L30 & L41: enforce capturing verification notes for missing operational reasons or zero amounts
+    reason_text = str(ticket_payload.get("reason") or "").strip()
+    if amount_val > 0.0 and (
+        not reason_text or reason_text.lower() in ("no reason provided", "unknown")
+    ):
+        reason_note = "Needs operational justification"
+        if not any(reason_note in part for part in notes_parts):
+            notes_parts.append(reason_note)
+
+    if amount_val == 0.0 and not verification_note:
+        verification_note = "Needs amount verification"
+
+    if verification_note and not any(verification_note in part for part in notes_parts):
+        notes_parts.append(verification_note)
+
+    notes_val = "; ".join([p for p in notes_parts if p.strip()])
+    return ResubmissionResolution(
+        status=status_val,
+        created_at=created_time,
+        updated_at=updated_time,
+        notes=notes_val,
+    )
+
+
 def sync_ticket_to_spreadsheet(
     ticket: dict[str, Any], csv_path: str | None = None
 ) -> dict[str, Any]:
@@ -470,75 +628,22 @@ def sync_ticket_to_spreadsheet(
         (i for i, r in enumerate(rows) if r["ticket_id"] == ticket_id), None
     )
 
-    provided_status_raw = ticket.get("status")
-    provided_status = (
-        str(provided_status_raw).strip()
-        if provided_status_raw is not None
-        and str(provided_status_raw).strip() not in ("", "None")
-        else None
+    (
+        status_val,
+        created_time,
+        updated_time,
+        notes_val,
+    ) = _resolve_resubmission_status_and_notes(
+        existing_row=rows[existing_idx] if existing_idx is not None else None,
+        ticket_payload=ticket,
+        now_local=now_local,
+        ctx=ResubmissionContext(
+            customer_email=customer_email,
+            customer_name=customer_name,
+            verification_note=verification_note,
+            amount_val=amount_val,
+        ),
     )
-
-    # If ticket already exists and status was not explicitly passed in payload, retain existing status
-    if existing_idx is not None:
-        created_time = rows[existing_idx].get("created_at") or now_local
-        existing_status = str(rows[existing_idx].get("status", "Pending"))
-        if existing_status == "None":
-            existing_status = "Pending"
-        existing_notes = str(rows[existing_idx].get("notes", "") or "")
-
-        is_resubmission = existing_status.strip().lower() in (
-            "needs info",
-            "needs_info",
-        )
-
-        if is_resubmission and (
-            not provided_status
-            or provided_status.lower() in ("pending", "needs info", "needs_info")
-        ):
-            status_val = "Pending"
-            updated_time = now_local
-        elif provided_status:
-            status_val = provided_status
-            updated_time = now_local
-        else:
-            status_val = existing_status
-            updated_time = rows[existing_idx].get("updated_at") or now_local
-    else:
-        created_time = now_local
-        updated_time = ""
-        status_val = provided_status or "Pending"
-        existing_notes = ""
-        is_resubmission = False
-
-    explicit_notes = str(ticket.get("notes") or "").strip()
-    notes_parts: list[str] = []
-    if existing_notes:
-        notes_parts.append(existing_notes)
-
-    if explicit_notes:
-        if is_resubmission and " at " not in explicit_notes:
-            formatted_explicit = f"{explicit_notes} at {now_local}"
-        else:
-            formatted_explicit = explicit_notes
-        if (
-            formatted_explicit not in existing_notes
-            and formatted_explicit not in notes_parts
-        ):
-            notes_parts.append(formatted_explicit)
-    elif is_resubmission:
-        resubmit_note = f"Agent resubmitted ticket at {now_local}"
-        if resubmit_note not in existing_notes and resubmit_note not in notes_parts:
-            notes_parts.append(resubmit_note)
-
-    if customer_email and customer_email != customer_name:
-        email_note = f"email: {customer_email}"
-        if not any(email_note in part for part in notes_parts):
-            notes_parts.append(email_note)
-
-    if verification_note and not any(verification_note in part for part in notes_parts):
-        notes_parts.append(verification_note)
-
-    notes_val = "; ".join([p for p in notes_parts if p.strip()])
 
     # Determine reason: explicit reason or extracted operational reason
     provided_reason = ticket.get("reason", "")
@@ -562,13 +667,44 @@ def sync_ticket_to_spreadsheet(
         ticket.get("labels") or ticket.get("tags") or ("escalated" if is_urgent else "")
     ).strip()
     formatted_amount = f"{amount_val:.2f}"
+    existing_row = rows[existing_idx] if existing_idx is not None else None
+    if existing_row:
+        if (
+            (customer_name == "Customer" or not customer_name)
+            and existing_row.get("customer_name")
+            and existing_row["customer_name"] != "Customer"
+        ):
+            customer_name = existing_row["customer_name"]
+        if not customer_email_val and existing_row.get("customer_email"):
+            customer_email_val = existing_row["customer_email"]
+        if not assigned_to_val and existing_row.get("assigned_to"):
+            assigned_to_val = existing_row["assigned_to"]
+        if not ticket.get("category") and existing_row.get("category"):
+            category_val = existing_row["category"]
+        else:
+            category_val = ticket.get("category", "Billing")
+        if not labels_val and existing_row.get("labels"):
+            labels_val = existing_row["labels"]
+        if (
+            not provided_reason or provided_reason == "Operational review"
+        ) and existing_row.get("reason"):
+            reason_val = existing_row["reason"]
+        if (
+            amount_val == 0.0
+            and existing_row.get("amount")
+            and existing_row["amount"] != "0.00"
+        ):
+            amount_val = normalize_currency_amount(existing_row["amount"])
+            formatted_amount = f"{amount_val:.2f}"
+    else:
+        category_val = ticket.get("category", "Billing")
 
     new_row: dict[str, Any] = {
         "ticket_id": sanitize_cell(ticket_id),
         "created_at": sanitize_cell(created_time),
         "status": sanitize_cell(status_val),
         "priority": sanitize_cell(effective_priority),
-        "category": sanitize_cell(ticket.get("category", "Billing")),
+        "category": sanitize_cell(category_val),
         "assigned_to": sanitize_cell(assigned_to_val),
         "customer_email": sanitize_cell(customer_email_val),
         "labels": sanitize_cell(labels_val),
@@ -604,6 +740,13 @@ def get_pending_approvals(csv_path: str | None = None) -> list[dict[str, Any]]:
     return [r for r in rows if r["status"] == "Pending"]
 
 
+def get_needs_info_approvals(csv_path: str | None = None) -> list[dict[str, Any]]:
+    """Retrieve all tickets in Needs Info status from the tracking spreadsheet."""
+    path = csv_path or get_ops_tracking_path()
+    rows = _read_all(path)
+    return [r for r in rows if _is_needs_info_status(r.get("status", ""))]
+
+
 def update_approval_status(
     ticket_id: str,
     new_status: str,
@@ -617,8 +760,63 @@ def update_approval_status(
     if not target:
         raise ValueError(f"Ticket with ID {ticket_id} not found in tracking sheet.")
 
-    target["status"] = new_status
+    current_status = str(target.get("status", "")).strip().lower()
+    clean_new_status = new_status.strip().lower()
+
+    # Spec L60-61: Approved and Rejected are terminal states
+    if (
+        current_status in ("approved", "rejected")
+        and current_status != clean_new_status
+    ):
+        raise ValueError(
+            f"Cannot update ticket {ticket_id}: current status '{target.get('status')}' is terminal."
+        )
+
+    # Spec L62-63: needs_info cannot transition directly to Approved without agent re-submission
+    # (Managers can still Reject invalid tickets directly)
+    if _is_needs_info_status(current_status) and clean_new_status == "approved":
+        raise ValueError(
+            f"Cannot transition ticket {ticket_id} from '{target.get('status')}' to '{new_status}'. Ticket requires agent follow-up and re-submission before approval."
+        )
+
+    # Spec L41 & L5 & L30: Payout legitimacy check - require clear operational reason before approval
+    if clean_new_status == "approved":
+        amt_str = str(target.get("refund_amount") or target.get("amount") or "0.0")
+        refund_amt, _ = extract_amount(amt_str)
+        reason_str = str(target.get("reason") or "").strip().lower()
+        existing_notes = str(target.get("notes") or "").lower()
+        if (
+            not reason_str
+            or reason_str in ("no reason provided", "unknown", "none")
+            or ("needs operational justification" in existing_notes and not notes)
+        ):
+            raise ValueError(
+                f"Cannot approve ticket {ticket_id}: operational justification is required before payout approval."
+            )
+        if refund_amt == 0.0 and (
+            not notes
+            and (not existing_notes or existing_notes == "needs amount verification")
+        ):
+            raise ValueError(
+                f"Cannot approve ticket {ticket_id}: ticket with zero or unverified amount requires explicit verification notes before approval."
+            )
+
+    target["status"] = sanitize_cell(new_status)
     target["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Spec L47: approved refunds retain verified operational reason and agent sign-off
+    if clean_new_status == "approved" and not notes:
+        agent_name = (target.get("assigned_to") or target.get("agent") or "").strip()
+        if agent_name and agent_name.lower() not in (
+            "unassigned",
+            "support team",
+            "system",
+        ):
+            signoff_note = f"Verified: Agent {agent_name} signed off"
+            existing_notes_str = str(target.get("notes") or "")
+            if signoff_note not in existing_notes_str:
+                notes = signoff_note
+
     if notes:
         existing = str(target.get("notes") or "").strip()
         if existing and notes not in existing:
@@ -696,81 +894,23 @@ def sync_tickets_batch_to_spreadsheet(
             (i for i, r in enumerate(rows) if r["ticket_id"] == ticket_id), None
         )
 
-        provided_status_raw = ticket.get("status")
-        provided_status = (
-            str(provided_status_raw).strip()
-            if provided_status_raw is not None
-            and str(provided_status_raw).strip() not in ("", "None")
-            else None
+        (
+            status_val,
+            created_time,
+            updated_time,
+            notes_val,
+        ) = _resolve_resubmission_status_and_notes(
+            existing_row=rows[existing_idx] if existing_idx is not None else None,
+            ticket_payload=ticket,
+            now_local=now_local,
+            ctx=ResubmissionContext(
+                customer_email=customer_email,
+                customer_name=customer_name,
+                verification_note=verification_note,
+                amount_val=amount_val,
+            ),
+            allow_resubmission=False,
         )
-
-        if existing_idx is not None:
-            created_time = (
-                ticket.get("created_at")
-                or rows[existing_idx].get("created_at")
-                or now_local
-            )
-            existing_status = str(rows[existing_idx].get("status", "open"))
-            if existing_status == "None":
-                existing_status = "Pending"
-            existing_notes = str(rows[existing_idx].get("notes", "") or "")
-
-            is_resubmission = existing_status.strip().lower() in (
-                "needs info",
-                "needs_info",
-            )
-
-            if is_resubmission and (
-                not provided_status
-                or provided_status.lower()
-                in ("pending", "open", "needs info", "needs_info")
-            ):
-                status_val = "Pending"
-                updated_time = now_local
-            elif provided_status:
-                status_val = provided_status
-                updated_time = now_local
-            else:
-                status_val = existing_status
-                updated_time = rows[existing_idx].get("updated_at") or now_local
-        else:
-            created_time = ticket.get("created_at") or now_local
-            updated_time = ""
-            status_val = provided_status or "open"
-            existing_notes = ""
-            is_resubmission = False
-
-        explicit_notes = str(ticket.get("notes") or "").strip()
-        notes_parts: list[str] = []
-        if existing_notes:
-            notes_parts.append(existing_notes)
-
-        if explicit_notes:
-            if is_resubmission and " at " not in explicit_notes:
-                formatted_explicit = f"{explicit_notes} at {now_local}"
-            else:
-                formatted_explicit = explicit_notes
-            if (
-                formatted_explicit not in existing_notes
-                and formatted_explicit not in notes_parts
-            ):
-                notes_parts.append(formatted_explicit)
-        elif is_resubmission:
-            resubmit_note = f"Agent resubmitted ticket at {now_local}"
-            if resubmit_note not in existing_notes and resubmit_note not in notes_parts:
-                notes_parts.append(resubmit_note)
-
-        if customer_email and customer_email != customer_name:
-            email_note = f"email: {customer_email}"
-            if not any(email_note in part for part in notes_parts):
-                notes_parts.append(email_note)
-
-        if verification_note and not any(
-            verification_note in part for part in notes_parts
-        ):
-            notes_parts.append(verification_note)
-
-        notes_val = "; ".join([p for p in notes_parts if p.strip()])
 
         provided_reason = ticket.get("reason", "")
         if provided_reason:

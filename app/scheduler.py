@@ -67,3 +67,13 @@ async def start_daily_digest_scheduler(
         except (OSError, RuntimeError, ValueError) as e:
             logger.error("Error during scheduled digest execution: %s", e)
         await asyncio.sleep(poll_interval_seconds)
+
+
+def check_scheduler_health() -> bool:
+    """Verify digest scheduler configuration and trigger viability."""
+    try:
+        sample_time = datetime(2026, 1, 1, 9, 0)
+        return should_trigger_digest(sample_time, None) is True
+    except (OSError, ValueError, RuntimeError, TypeError) as e:
+        logger.warning("Scheduler health diagnostic failed: %s", e)
+        return False

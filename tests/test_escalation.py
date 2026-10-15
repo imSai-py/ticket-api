@@ -189,12 +189,17 @@ def test_escalation_alert_contains_html_approve_reject_buttons(monkeypatch):
     assert "html_body" in alert
     assert "✅ Approve" in alert["html_body"]
     assert "❌ Reject" in alert["html_body"]
+    assert "⚠️ Need More Info" in alert["html_body"]
     assert (
-        "http://localhost:8000/ops/approvals/TCK-BTN-1/action?status=Approved"
+        "http://localhost:8000/ops/approvals/action?ticket_id=TCK-BTN-1&status=Approved"
         in alert["html_body"]
     )
     assert (
-        "http://localhost:8000/ops/approvals/TCK-BTN-1/action?status=Rejected"
+        "http://localhost:8000/ops/approvals/action?ticket_id=TCK-BTN-1&status=Rejected"
+        in alert["html_body"]
+    )
+    assert (
+        "http://localhost:8000/ops/approvals/action?ticket_id=TCK-BTN-1&status=needs_info"
         in alert["html_body"]
     )
 
@@ -245,26 +250,48 @@ def test_batch_ingest_dispatches_single_digest_email(tmp_path, monkeypatch):
     assert len(digest_calls) == 1
 
 
-def test_send_agent_info_request_email_dispatch(monkeypatch):
-    from app.escalation import send_agent_info_request_email
+def test_send_agent_info_request_email_dispatch(tmp_path, monkeypatch):
+    """Test agent notification dispatch through the FastAPI HTTP boundary."""
+    from fastapi.testclient import TestClient
 
+    import app.escalation as esc
+    from app.main import app
+    from app.tracking_sync import sync_ticket_to_spreadsheet
+
+    client = TestClient(app)
+    test_csv = str(tmp_path / "agent_dispatch_test.csv")
+    monkeypatch.setenv("OPS_TRACKING_PATH", test_csv)
+    monkeypatch.setenv("OPS_TRACKING_CSV_PATH", test_csv)
     monkeypatch.setenv("AGENT_NOTIFICATIONS_EMAIL", "agent-support@company.com")
-    ticket = {
-        "ticket_id": "TCK-INFO-001",
-        "customer_name": "Oliver Queen",
-        "category": "Billing",
-        "priority": "urgent",
-        "amount": 350.0,
-        "reason": "Double monthly subscription deduction",
-        "assigned_to": "Felicity",
-    }
-    res = send_agent_info_request_email(
-        ticket,
-        instructions="Please request bank statement copy verifying charge.",
+
+    captured = []
+
+    def fake_dispatch(to_email, subject, body, html_body=None):
+        captured.append({"to": to_email, "subject": subject, "body": body})
+        return {"sent": True}
+
+    monkeypatch.setattr(esc, "dispatch_smtp_email", fake_dispatch)
+
+    sync_ticket_to_spreadsheet(
+        {
+            "ticket_id": "TCK-INFO-001",
+            "customer_name": "Oliver Queen",
+            "category": "Billing",
+            "priority": "urgent",
+            "amount": 350.0,
+            "reason": "Double monthly subscription deduction",
+            "assigned_to": "Felicity",
+        },
+        csv_path=test_csv,
     )
-    assert res["dispatched"] is True
-    assert res["recipient"] == "agent-support@company.com"
-    assert "More Info Needed" in res["subject"]
-    assert "TCK-INFO-001" in res["subject"]
-    assert "Oliver Queen" in res["subject"]
-    assert "bank statement copy" in res["instructions"]
+
+    res = client.get(
+        "/ops/approvals/TCK-INFO-001/action?status=needs_info&instructions=Please+request+bank+statement+copy+verifying+charge."
+    )
+    assert res.status_code == 200
+    assert len(captured) > 0
+    notif = captured[-1]
+    assert notif["to"] == "agent-support@company.com"
+    assert "TCK-INFO-001" in notif["subject"]
+    assert "Oliver Queen" in notif["subject"]
+    assert "bank statement copy" in notif["body"]

@@ -1,7 +1,7 @@
 """Data validation schemas for ticket-api."""
 
 from enum import Enum
-from typing import Any
+from typing import Any, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -26,7 +26,7 @@ class ApprovalStatusEnum(str, Enum):
     APPROVED = "Approved"
     REJECTED = "Rejected"
     PENDING = "Pending"
-    NEEDS_INFO = "Needs Info"
+    NEEDS_INFO = "needs_info"
 
     @classmethod
     def from_action(cls, value: str) -> "ApprovalStatusEnum":
@@ -47,6 +47,14 @@ class ApprovalStatusEnum(str, Enum):
         raise ValueError(
             f"Invalid status. Status must be '{cls.APPROVED.value}', '{cls.REJECTED.value}', or '{cls.NEEDS_INFO.value}'."
         )
+
+
+class ApprovalActionUrls(NamedTuple):
+    """Container for standardized approval action links."""
+
+    approve_url: str
+    reject_url: str
+    need_info_url: str
 
 
 class TriageRequest(BaseModel):
@@ -143,9 +151,6 @@ class SyncTicketRequest(BaseModel):
     labels: str = Field(default="", description="Ticket labels or tags")
     refund_amount: float | str | None = Field(
         default=None, description="Pre-populated refund amount"
-    )
-    status: str | None = Field(
-        default=None, description="Optional explicit ticket status"
     )
 
     model_config = ConfigDict(use_enum_values=True)

@@ -4,8 +4,12 @@ import os
 from datetime import datetime
 from typing import Any
 
-from app.escalation import dispatch_smtp_email, is_billing_category
-from app.tracking_sync import get_pending_approvals
+from app.escalation import (
+    build_approval_action_urls,
+    dispatch_smtp_email,
+    is_billing_category,
+)
+from app.tracking_sync import _is_needs_info_status, get_pending_approvals
 
 
 def generate_batch_digest(
@@ -24,7 +28,13 @@ def generate_batch_digest(
     )
 
     if tickets is not None:
-        pending_tickets = [t for t in tickets if is_billing_category(t.get("category"))]
+        pending_tickets = [
+            t
+            for t in tickets
+            if is_billing_category(t.get("category"))
+            and str(t.get("status", "")).strip().lower() not in ("approved", "rejected")
+            and not _is_needs_info_status(t.get("status", ""))
+        ]
     else:
         all_pending = get_pending_approvals(csv_path=csv_path)
         pending_tickets = [
@@ -57,8 +67,8 @@ def generate_batch_digest(
             },
         }
 
-    header_line = f"{'Ticket ID':<12} | {'Customer':<20} | {'Amount':<10} | {'Agent':<12} | {'Reason'}"
-    sep_line = "-" * 85
+    header_line = f"{'Ticket ID':<12} | {'Customer':<20} | {'Category':<12} | {'Amount':<10} | {'Agent':<12} | {'Reason'}"
+    sep_line = "-" * 98
     base_url = (os.getenv("BASE_URL") or "http://localhost:8000").rstrip("/")
     data_lines = []
     html_rows = []
@@ -73,19 +83,17 @@ def generate_batch_digest(
             amount_num = 0.0
 
         customer = t.get("customer_name") or t.get("customer_email") or "Customer"
+        category = t.get("category") or "Billing"
         agent = t.get("assigned_to") or t.get("agent") or "System"
         reason = t.get("reason") or "Operational review"
 
-        approve_url = (
-            f"{base_url}/ops/approvals/{t['ticket_id']}/action?status=Approved"
-        )
-        reject_url = f"{base_url}/ops/approvals/{t['ticket_id']}/action?status=Rejected"
-        need_info_url = (
-            f"{base_url}/ops/approvals/{t['ticket_id']}/action?status=needs_info"
-        )
+        action_urls = build_approval_action_urls(t["ticket_id"], base_url)
+        approve_url = action_urls.approve_url
+        reject_url = action_urls.reject_url
+        need_info_url = action_urls.need_info_url
 
         data_lines.append(
-            f"{t['ticket_id']:<12} | {customer:<20} | ${amount_num:<9.2f} | {agent:<12} | {reason}\n"
+            f"{t['ticket_id']:<12} | {customer:<20} | {category:<12} | ${amount_num:<9.2f} | {agent:<12} | {reason}\n"
             f"  -> Actions: [Approve: {approve_url}]  [Reject: {reject_url}]  [Need More Info: {need_info_url}]"
         )
 
@@ -93,13 +101,14 @@ def generate_batch_digest(
             f"<tr>"
             f"  <td style='padding: 10px 12px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>{t['ticket_id']}</td>"
             f"  <td style='padding: 10px 12px; border-bottom: 1px solid #e2e8f0;'>{customer}</td>"
+            f"  <td style='padding: 10px 12px; border-bottom: 1px solid #e2e8f0; color: #475569; font-weight: 500;'>{category}</td>"
             f"  <td style='padding: 10px 12px; border-bottom: 1px solid #e2e8f0; color: #dc2626; font-weight: bold;'>${amount_num:.2f}</td>"
             f"  <td style='padding: 10px 12px; border-bottom: 1px solid #e2e8f0;'>{agent}</td>"
             f"  <td style='padding: 10px 12px; border-bottom: 1px solid #e2e8f0;'>{reason}</td>"
             f"  <td style='padding: 10px 12px; border-bottom: 1px solid #e2e8f0; text-align: center; white-space: nowrap;'>"
-            f"    <a href='{approve_url}' style='background-color: #16a34a; color: #ffffff !important; padding: 6px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 12px; display: inline-block; margin-right: 6px;'>Approve</a>"
-            f"    <a href='{reject_url}' style='background-color: #dc2626; color: #ffffff !important; padding: 6px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 12px; display: inline-block; margin-right: 6px;'>Reject</a>"
-            f"    <a href='{need_info_url}' style='background-color: #d97706; color: #ffffff !important; padding: 6px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 12px; display: inline-block;'>Need More Info</a>"
+            f"    <a href='{approve_url}' style='background-color: #28a745; color: #ffffff !important; padding: 6px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 12px; display: inline-block; margin-right: 6px;'>Approve</a>"
+            f"    <a href='{reject_url}' style='background-color: #dc3545; color: #ffffff !important; padding: 6px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 12px; display: inline-block; margin-right: 6px;'>Reject</a>"
+            f"    <a href='{need_info_url}' style='background-color: #ffc107; color: #212529 !important; padding: 6px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 12px; display: inline-block;'>Need More Info</a>"
             f"  </td>"
             f"</tr>"
         )
@@ -136,6 +145,7 @@ def generate_batch_digest(
         <tr>
           <th>Ticket ID</th>
           <th>Customer</th>
+          <th>Category</th>
           <th>Amount</th>
           <th>Agent</th>
           <th>Reason</th>

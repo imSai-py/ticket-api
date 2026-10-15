@@ -27,15 +27,15 @@ def test_batch_digest_includes_action_links(tmp_path, monkeypatch):
     digest = generate_batch_digest(csv_path=test_csv)
     assert digest["has_pending"] is True
     assert (
-        "https://api.example.com/ops/approvals/TCK-ACT-001/action?status=Approved"
+        "https://api.example.com/ops/approvals/action?ticket_id=TCK-ACT-001&status=Approved"
         in digest["body_table"]
     )
     assert (
-        "https://api.example.com/ops/approvals/TCK-ACT-001/action?status=Rejected"
+        "https://api.example.com/ops/approvals/action?ticket_id=TCK-ACT-001&status=Rejected"
         in digest["body_table"]
     )
     assert (
-        "https://api.example.com/ops/approvals/TCK-ACT-001/action?status=needs_info"
+        "https://api.example.com/ops/approvals/action?ticket_id=TCK-ACT-001&status=needs_info"
         in digest["body_table"]
     )
     assert "Need More Info" in digest["html_body"]

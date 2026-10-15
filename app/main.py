@@ -40,6 +40,7 @@ from app.tracking_sync import (
     check_storage_health,
     extract_amount,
     extract_operational_reason,
+    get_needs_info_approvals,
     get_pending_approvals,
     normalize_currency_amount,
     resolve_ticket_priority_and_escalation,
@@ -231,6 +232,15 @@ def health_check() -> JSONResponse:
         is_healthy = False
         checks["knowledge_base"] = "error: knowledge base unavailable"
 
+    # 4. Digest scheduler readiness
+    from app.scheduler import check_scheduler_health
+
+    if check_scheduler_health():
+        checks["digest_scheduler"] = "ready"
+    else:
+        is_healthy = False
+        checks["digest_scheduler"] = "error: digest scheduler not ready"
+
     status_str = "healthy" if is_healthy else "degraded"
     status_code = 200 if is_healthy else 503
 
@@ -242,6 +252,7 @@ def health_check() -> JSONResponse:
             "storage": checks["storage"],
             "tickets_data": checks["tickets_data"],
             "knowledge_base": checks["knowledge_base"],
+            "digest_scheduler": checks["digest_scheduler"],
         },
     )
 
@@ -633,7 +644,13 @@ async def ingest_batch_csv(
 @app.get("/ops/approvals/pending")
 def ops_get_pending() -> dict[str, Any]:
     pending = get_pending_approvals()
-    return {"pending_count": len(pending), "pending_approvals": pending}
+    needs_info = get_needs_info_approvals()
+    return {
+        "pending_count": len(pending),
+        "needs_info_count": len(needs_info),
+        "pending_approvals": pending,
+        "needs_info_approvals": needs_info,
+    }
 
 
 @app.post("/ops/approvals/send-digest")
@@ -643,7 +660,11 @@ def ops_send_digest() -> dict[str, Any]:
 
 
 @app.get("/ops/approvals/{ticket_id}/action", response_class=HTMLResponse)
-def ops_approval_action(ticket_id: str, status: str = Query(...)) -> HTMLResponse:
+def ops_approval_action(
+    ticket_id: str,
+    status: str = Query(...),
+    instructions: str | None = Query(None),
+) -> HTMLResponse:
     clean_ticket_id = ticket_id.strip()
     if not clean_ticket_id:
         raise HTTPException(
@@ -667,14 +688,20 @@ def ops_approval_action(ticket_id: str, status: str = Query(...)) -> HTMLRespons
             notes=action_note,
         )
     except ValueError as e:
-        raise HTTPException(
-            status_code=404, detail=f"Ticket not found: {clean_ticket_id}"
-        ) from e
+        err_msg = str(e)
+        if "not found" in err_msg.lower():
+            raise HTTPException(
+                status_code=404, detail=f"Ticket not found: {clean_ticket_id}"
+            ) from e
+        raise HTTPException(status_code=400, detail=err_msg) from e
 
     # Notify assigned support agent of the manager decision
     try:
         if approval_status == ApprovalStatusEnum.NEEDS_INFO:
-            send_agent_info_request_email(updated_record)
+            if instructions:
+                send_agent_info_request_email(updated_record, instructions=instructions)
+            else:
+                send_agent_info_request_email(updated_record)
         else:
             send_agent_action_notification(updated_record, action=approval_status.value)
     except (OSError, KeyError, ValueError) as err:
@@ -700,9 +727,13 @@ def ops_approval_action(ticket_id: str, status: str = Query(...)) -> HTMLRespons
 
 @app.get("/ops/approvals/action", response_class=HTMLResponse)
 def ops_approval_action_query(
-    ticket_id: str = Query(...), status: str = Query(...)
+    ticket_id: str = Query(...),
+    status: str = Query(...),
+    instructions: str | None = Query(None),
 ) -> HTMLResponse:
-    return ops_approval_action(ticket_id=ticket_id, status=status)
+    return ops_approval_action(
+        ticket_id=ticket_id, status=status, instructions=instructions
+    )
 
 
 @app.post("/triage", response_model=TriageResponse)
