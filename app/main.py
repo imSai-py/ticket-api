@@ -2,6 +2,7 @@ import asyncio
 import csv
 import logging
 import os
+import re
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -20,6 +21,9 @@ from app.retrieval import KBRetriever
 from app.scheduler import start_daily_digest_scheduler
 from app.schemas import (
     ApprovalStatusEnum,
+    HelpdeskQueryIngestRequest,
+    HelpdeskQueryIngestResponse,
+    PriorityEnum,
     SyncTicketRequest,
     TriageRequest,
     TriageResponse,
@@ -27,8 +31,11 @@ from app.schemas import (
 from app.tracking_sync import (
     SpreadsheetLockedError,
     check_storage_health,
+    extract_amount,
+    extract_operational_reason,
     get_pending_approvals,
     normalize_currency_amount,
+    resolve_ticket_priority_and_escalation,
     sanitize_cell,
     sync_ticket_to_spreadsheet,
     update_approval_status,
@@ -360,6 +367,117 @@ def ops_sync_ticket(req: SyncTicketRequest) -> dict[str, Any]:
             },
         )
     return {"ticket": row, "escalation_alert": alert}
+
+
+@app.post("/ops/ingest-helpdesk", response_model=HelpdeskQueryIngestResponse)
+def ingest_helpdesk_query(
+    req: HelpdeskQueryIngestRequest,
+) -> HelpdeskQueryIngestResponse:
+    """Ingest a single customer query from helpdesk, analyze with AI, and persist 8-column record."""
+    clean_subj = sanitize_cell(req.subject)
+    clean_prob = sanitize_cell(req.problem)
+
+    # 1. AI analysis: predict category, priority, and grounded reply
+    matched = retriever.retrieve(clean_subj, clean_prob)
+    ai_res = classify_and_reply(clean_subj, clean_prob, matched_articles=matched)
+
+    # 2. Extract and normalize refund currency amount
+    refund_val = 0.0
+    combined_text = f"{clean_subj} {clean_prob}"
+    if req.refund_amount is not None and str(req.refund_amount).strip() != "":
+        refund_val = normalize_currency_amount(req.refund_amount)
+    if refund_val == 0.0:
+        extracted, _ = extract_amount(combined_text)
+        if extracted > 0.0:
+            refund_val = extracted
+
+    # 3. Resolve customer name from input or email
+    resolved_customer = req.customer_name.strip() if req.customer_name else ""
+    if not resolved_customer or resolved_customer.lower() == "customer":
+        if req.customer_email and "@" in req.customer_email:
+            prefix = req.customer_email.split("@")[0]
+            parts = [p.capitalize() for p in re.split(r"[._-]", prefix) if p]
+            resolved_customer = " ".join(parts) if parts else "Customer"
+        else:
+            resolved_customer = "Customer"
+
+    # 4. Resolve operational reason
+    operational_reason = extract_operational_reason(clean_subj, clean_prob)
+
+    # 5. Build sync payload
+    ticket_payload: dict[str, Any] = {
+        "customer_name": resolved_customer,
+        "customer_email": req.customer_email,
+        "category": str(ai_res.category),
+        "priority": str(ai_res.priority),
+        "status": req.status or "open",
+        "amount": f"{refund_val:.2f}",
+        "refund_amount": refund_val,
+        "reason": operational_reason,
+        "agent": req.assigned_to or "Unassigned",
+        "labels": req.labels,
+        "subject": clean_subj,
+        "text": clean_prob,
+    }
+    if req.ticket_id.strip():
+        ticket_payload["ticket_id"] = req.ticket_id.strip()
+
+    # 6. Sync to operational tracking spreadsheet
+    row = sync_ticket_to_spreadsheet(ticket_payload)
+
+    # 7. Check priority and escalation
+    effective_priority, is_urgent = resolve_ticket_priority_and_escalation(row)
+    if is_urgent:
+        send_escalation_alert(row)
+
+    # 8. Update in-memory TICKETS cache
+    existing = next(
+        (t for t in TICKETS if t.get("ticket_id") == row["ticket_id"]), None
+    )
+    if existing:
+        existing.update(
+            {
+                "category": row["category"],
+                "priority": row["priority"],
+                "status": row["status"],
+                "agent": row["agent"],
+                "assigned_to": row["agent"],
+                "customer_email": req.customer_email or existing.get("customer_email"),
+                "refund_amount": f"{refund_val:.2f}",
+                "labels": req.labels or existing.get("labels"),
+            }
+        )
+    else:
+        TICKETS.insert(
+            0,
+            {
+                "ticket_id": row["ticket_id"],
+                "created_at": row["created_at"],
+                "created": parse_iso_timestamp(row["created_at"]),
+                "category": row["category"],
+                "priority": row["priority"],
+                "status": row["status"],
+                "agent": row["agent"],
+                "assigned_to": row["agent"],
+                "customer_email": req.customer_email,
+                "labels": req.labels,
+                "refund_amount": f"{refund_val:.2f}",
+                "reason": row["reason"],
+            },
+        )
+
+    return HelpdeskQueryIngestResponse(
+        status="success",
+        ticket_id=row["ticket_id"],
+        category=ai_res.category,
+        priority=PriorityEnum(effective_priority.lower()),
+        refund_amount=refund_val,
+        customer_name=resolved_customer,
+        assigned_to=row["agent"],
+        suggested_reply=ai_res.suggested_reply,
+        record=row,
+        escalated=is_urgent,
+    )
 
 
 @app.get("/ops/approvals/pending")

@@ -1,1 +1,2 @@
 ticket_id,customer_name,category,priority,amount,reason,agent,status,escalated,created_at,updated_at,notes
+TCK-1020,Alex Morgan,Billing,normal,129.50,Duplicate charge on annual plan,Mara,Approved,False,2026-10-15 10:27:30,2026-10-15 10:29:24,

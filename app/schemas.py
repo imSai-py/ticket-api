@@ -1,6 +1,7 @@
 """Data validation schemas for ticket-api."""
 
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -129,3 +130,64 @@ class SyncTicketRequest(BaseModel):
         if not v or not v.strip():
             raise ValueError("customer_name cannot be empty or whitespace.")
         return v.strip()
+
+
+class HelpdeskQueryIngestRequest(BaseModel):
+    """Payload for real-time helpdesk customer query intake."""
+
+    ticket_id: str = Field(
+        default="", description="Optional helpdesk ticket identifier (e.g. TCK-5007)"
+    )
+    subject: str = Field(default="", description="Ticket subject line")
+    problem: str = Field(
+        default="", description="Detailed message body or customer issue description"
+    )
+    customer_email: str = Field(default="", description="Customer contact email")
+    customer_name: str = Field(
+        default="Customer", description="Customer full name if known"
+    )
+    assigned_to: str = Field(
+        default="", description="Support agent handling the ticket"
+    )
+    status: str = Field(default="open", description="Initial ticket lifecycle state")
+    labels: str = Field(
+        default="", description="Ticket labels or tags (e.g. escalated, vip)"
+    )
+    refund_amount: float | str | None = Field(
+        default=None, description="Pre-identified refund amount"
+    )
+
+    model_config = ConfigDict(extra="ignore")
+
+    @model_validator(mode="after")
+    def validate_content_present(self) -> "HelpdeskQueryIngestRequest":
+        if not self.subject.strip() and not self.problem.strip():
+            raise ValueError(
+                "Ticket subject and problem body cannot both be empty or whitespace."
+            )
+        return self
+
+
+class HelpdeskQueryIngestResponse(BaseModel):
+    """Structured response for processed helpdesk query."""
+
+    status: str = Field(default="success", description="Processing status")
+    ticket_id: str = Field(description="Unique ticket identifier")
+    category: CategoryEnum = Field(description="Classified ticket category")
+    priority: PriorityEnum = Field(description="Classified urgency priority")
+    refund_amount: float = Field(
+        default=0.0, description="Normalized refund amount in USD"
+    )
+    customer_name: str = Field(description="Resolved customer name")
+    assigned_to: str = Field(description="Assigned support agent")
+    suggested_reply: str = Field(
+        default="", description="Grounded customer response draft"
+    )
+    record: dict[str, Any] = Field(
+        description="Structured 8-column record synced to spreadsheet"
+    )
+    escalated: bool = Field(
+        default=False, description="Whether ticket triggered urgent escalation"
+    )
+
+    model_config = ConfigDict(use_enum_values=True)

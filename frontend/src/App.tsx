@@ -7,6 +7,30 @@ export interface TriageResult {
   article_ids: string[];
 }
 
+export interface HelpdeskIngestResult {
+  status: string;
+  ticket_id: string;
+  category: string;
+  priority: string;
+  refund_amount: number;
+  customer_name: string;
+  assigned_to: string;
+  suggested_reply: string;
+  record: {
+    ticket_id: string;
+    customer_name: string;
+    category: string;
+    priority: string;
+    amount: string;
+    reason: string;
+    agent: string;
+    status: string;
+    escalated: string;
+    created_at: string;
+  };
+  escalated: boolean;
+}
+
 interface ValidationErrorDetail {
   msg?: string;
   type?: string;
@@ -27,6 +51,19 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<TriageResult | null>(null);
+
+  // Ingestion state
+  const [ingestTicketId, setIngestTicketId] = useState("");
+  const [ingestSubject, setIngestSubject] = useState("");
+  const [ingestProblem, setIngestProblem] = useState("");
+  const [ingestCustomerEmail, setIngestCustomerEmail] = useState("");
+  const [ingestCustomerName, setIngestCustomerName] = useState("");
+  const [ingestAgent, setIngestAgent] = useState("");
+  const [ingestLabels, setIngestLabels] = useState("");
+  const [ingestRefundAmount, setIngestRefundAmount] = useState("");
+  const [ingestLoading, setIngestLoading] = useState(false);
+  const [ingestError, setIngestError] = useState<string | null>(null);
+  const [ingestResult, setIngestResult] = useState<HelpdeskIngestResult | null>(null);
 
   const env = (import.meta as unknown as { env?: CustomImportMetaEnv }).env;
   const defaultBaseUrl =
@@ -96,6 +133,67 @@ export function App() {
     }
   };
 
+  const handleLoadSample = () => {
+    setIngestTicketId("TCK-5007");
+    setIngestSubject("Charged twice for annual plan");
+    setIngestProblem(
+      "I noticed two charges of $480.00 on my credit card statement for order #INV-8821. Please issue a refund immediately."
+    );
+    setIngestCustomerEmail("omar.ali@example.com");
+    setIngestCustomerName("");
+    setIngestAgent("Riya");
+    setIngestLabels("escalated");
+    setIngestRefundAmount("");
+    setIngestError(null);
+  };
+
+  const handleIngestSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIngestError(null);
+    setIngestResult(null);
+
+    if (!ingestSubject.trim() && !ingestProblem.trim()) {
+      setIngestError("Please provide a query subject or problem description.");
+      return;
+    }
+
+    setIngestLoading(true);
+    try {
+      const response = await fetch(`${apiBaseUrl}/ops/ingest-helpdesk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ticket_id: ingestTicketId.trim(),
+          subject: ingestSubject.trim(),
+          problem: ingestProblem.trim(),
+          customer_email: ingestCustomerEmail.trim(),
+          customer_name: ingestCustomerName.trim() || undefined,
+          assigned_to: ingestAgent.trim(),
+          labels: ingestLabels.trim(),
+          refund_amount: ingestRefundAmount.trim()
+            ? parseFloat(ingestRefundAmount)
+            : undefined,
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = (await response.json().catch(() => ({}))) as {
+          detail?: string;
+        };
+        throw new Error(errData.detail || `HTTP error ${response.status}`);
+      }
+
+      const data: HelpdeskIngestResult = await response.json();
+      setIngestResult(data);
+    } catch (err: unknown) {
+      setIngestError(
+        err instanceof Error ? err.message : "Failed to ingest helpdesk query."
+      );
+    } finally {
+      setIngestLoading(false);
+    }
+  };
+
   return (
     <div className="container">
       <nav
@@ -125,6 +223,171 @@ export function App() {
       </nav>
       <h1>AI Support Ticket Assistant</h1>
       <p>Review customer support tickets with automated category detection, urgency levels, and recommended customer replies.</p>
+
+      {/* Live Helpdesk Ingest Card */}
+      <div className="card" style={{ border: "2px solid #2563eb", marginBottom: "2rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+          <h2 style={{ margin: 0, color: "#1e3a8a", fontSize: "1.25rem" }}>
+            ⚡ Live Helpdesk Query Ingest (Auto-Sync to Spreadsheet)
+          </h2>
+          <button
+            type="button"
+            onClick={handleLoadSample}
+            style={{
+              background: "#e0e7ff",
+              color: "#3730a3",
+              border: "1px solid #c7d2fe",
+              padding: "0.3rem 0.75rem",
+              borderRadius: "4px",
+              cursor: "pointer",
+              fontSize: "0.85rem",
+              fontWeight: 600,
+            }}
+          >
+            📋 Load Sample Query ($480 Refund)
+          </button>
+        </div>
+        <p style={{ fontSize: "0.9rem", color: "#64748b", margin: "0 0 1rem 0" }}>
+          Paste a query from any helpdesk. AI extracts category, priority, and refund amounts, then automatically updates the 8-column tracking spreadsheet.
+        </p>
+
+        <form onSubmit={handleIngestSubmit} noValidate>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+            <div className="form-group">
+              <label htmlFor="ingest-subject">Query Subject</label>
+              <input
+                id="ingest-subject"
+                type="text"
+                placeholder="e.g. Charged twice on annual renewal"
+                value={ingestSubject}
+                onChange={(e) => setIngestSubject(e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="ingest-email">Customer Email</label>
+              <input
+                id="ingest-email"
+                type="email"
+                placeholder="e.g. omar.ali@example.com"
+                value={ingestCustomerEmail}
+                onChange={(e) => setIngestCustomerEmail(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="ingest-problem">Query Problem / Description</label>
+            <textarea
+              id="ingest-problem"
+              rows={3}
+              placeholder="Paste raw customer query text here (e.g. 'I was billed $480.00 twice on invoice #9021...')"
+              value={ingestProblem}
+              onChange={(e) => setIngestProblem(e.target.value)}
+            />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1rem" }}>
+            <div className="form-group">
+              <label htmlFor="ingest-agent">Assigned Agent</label>
+              <input
+                id="ingest-agent"
+                type="text"
+                placeholder="e.g. Riya"
+                value={ingestAgent}
+                onChange={(e) => setIngestAgent(e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="ingest-labels">Tags / Labels</label>
+              <input
+                id="ingest-labels"
+                type="text"
+                placeholder="e.g. escalated, vip"
+                value={ingestLabels}
+                onChange={(e) => setIngestLabels(e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="ingest-tid">Ticket ID (Optional)</label>
+              <input
+                id="ingest-tid"
+                type="text"
+                placeholder="Auto-assigned if empty"
+                value={ingestTicketId}
+                onChange={(e) => setIngestTicketId(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={ingestLoading}
+            style={{
+              background: "#2563eb",
+              color: "#fff",
+              border: "none",
+              padding: "0.6rem 1.25rem",
+              borderRadius: "6px",
+              cursor: "pointer",
+              fontWeight: 700,
+              fontSize: "0.95rem",
+            }}
+          >
+            {ingestLoading ? "Analyzing & Writing to Spreadsheet..." : "⚡ Ingest & Sync to Spreadsheet"}
+          </button>
+        </form>
+
+        {ingestError && (
+          <div className="alert-error" role="alert" style={{ marginTop: "1rem" }}>
+            <strong>Notice:</strong> {ingestError}
+          </div>
+        )}
+
+        {ingestResult && (
+          <div
+            data-testid="ingest-result-card"
+            style={{
+              marginTop: "1.25rem",
+              background: "#f0fdf4",
+              border: "1px solid #bbf7d0",
+              borderRadius: "8px",
+              padding: "1rem",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+              <span style={{ fontWeight: 700, color: "#166534", fontSize: "1rem" }}>
+                ✓ Synced to Spreadsheet ({ingestResult.ticket_id})
+              </span>
+              {ingestResult.escalated && (
+                <span style={{ background: "#dc2626", color: "#fff", padding: "0.2rem 0.6rem", borderRadius: "4px", fontSize: "0.8rem", fontWeight: 700 }}>
+                  ⚠️ URGENT ESCALATION ALERT
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
+              <span className="badge badge-category">Category: {ingestResult.category}</span>
+              <span className={`badge badge-priority-${ingestResult.priority}`}>
+                Priority: {ingestResult.priority.toUpperCase()}
+              </span>
+              <span style={{ background: "#fef3c7", color: "#92400e", padding: "0.2rem 0.6rem", borderRadius: "4px", fontSize: "0.85rem", fontWeight: 600 }}>
+                Refund Amount: ${ingestResult.refund_amount.toFixed(2)} USD
+              </span>
+              <span style={{ background: "#e2e8f0", color: "#334155", padding: "0.2rem 0.6rem", borderRadius: "4px", fontSize: "0.85rem" }}>
+                Customer: {ingestResult.customer_name}
+              </span>
+              <span style={{ background: "#e2e8f0", color: "#334155", padding: "0.2rem 0.6rem", borderRadius: "4px", fontSize: "0.85rem" }}>
+                Agent: {ingestResult.assigned_to}
+              </span>
+            </div>
+
+            <div style={{ fontSize: "0.9rem", color: "#1e293b", background: "#ffffff", padding: "0.75rem", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
+              <strong>AI Suggested Reply:</strong>
+              <p style={{ margin: "0.4rem 0 0 0", color: "#475569" }}>{ingestResult.suggested_reply}</p>
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="card">
         <form onSubmit={handleSubmit} noValidate>

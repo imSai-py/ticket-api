@@ -87,4 +87,61 @@ describe("App Triage Component", () => {
     expect(screen.getByRole("alert")).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent(/customer name is required/i);
   });
+
+  it("loads sample helpdesk query when clicking sample button", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /load sample query/i }));
+
+    expect(screen.getByLabelText(/query subject/i)).toHaveValue(
+      "Charged twice for annual plan"
+    );
+    expect(screen.getByLabelText(/customer email/i)).toHaveValue(
+      "omar.ali@example.com"
+    );
+  });
+
+  it("submits helpdesk query and renders synced spreadsheet confirmation card", async () => {
+    const mockIngestResult = {
+      status: "success",
+      ticket_id: "TCK-5007",
+      category: "Refunds",
+      priority: "urgent",
+      refund_amount: 480.0,
+      customer_name: "Omar Ali",
+      assigned_to: "Riya",
+      suggested_reply: "We have initiated a refund of $480.00 for invoice #INV-8821.",
+      record: {
+        ticket_id: "TCK-5007",
+        customer_name: "Omar Ali",
+        category: "Refunds",
+        priority: "urgent",
+        amount: "480.00",
+        reason: "Duplicate charge refund",
+        agent: "Riya",
+        status: "open",
+        escalated: "True",
+        created_at: "2026-10-15 14:00:00",
+      },
+      escalated: true,
+    };
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => mockIngestResult,
+    } as Response);
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: /load sample query/i }));
+    fireEvent.click(screen.getByRole("button", { name: /ingest & sync to spreadsheet/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("ingest-result-card")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("ingest-result-card")).toHaveTextContent("Synced to Spreadsheet (TCK-5007)");
+    expect(screen.getByTestId("ingest-result-card")).toHaveTextContent("Refund Amount: $480.00 USD");
+    expect(screen.getByTestId("ingest-result-card")).toHaveTextContent("URGENT ESCALATION ALERT");
+  });
 });
+
