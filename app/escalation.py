@@ -218,3 +218,88 @@ def send_escalation_alert(
         "approve_url": approve_url,
         "reject_url": reject_url,
     }
+
+
+def send_agent_action_notification(
+    ticket: dict[str, Any],
+    action: str,
+    recipient_override: str | None = None,
+) -> dict[str, Any]:
+    """Notify the assigned support agent and manager that an approval decision has been made."""
+    ticket_id = ticket.get("ticket_id", "Unknown")
+    customer = ticket.get("customer_name") or ticket.get("customer_email") or "Customer"
+    assigned_to = ticket.get("assigned_to") or ticket.get("agent") or "Support Team"
+    amount = ticket.get("refund_amount") or ticket.get("amount") or "0.00"
+    reason = ticket.get("reason") or "Operational review"
+
+    recipient = (
+        recipient_override
+        or os.getenv("AGENT_NOTIFICATIONS_EMAIL")
+        or os.getenv("ESCALATION_MANAGER_EMAIL")
+        or f"{str(assigned_to).lower()}@company.com"
+    )
+
+    action_verb = "APPROVED" if action.lower() == "approved" else "REJECTED"
+    badge_color = "#16a34a" if action.lower() == "approved" else "#dc2626"
+    next_step = (
+        f"You are authorized to execute the refund of ${amount} to {customer}."
+        if action.lower() == "approved"
+        else f"Do not issue a refund. Please contact {customer} to communicate the rejection."
+    )
+
+    subject = f"[DECISION: {action_verb}] Ticket {ticket_id} - {customer} (${amount})"
+    body = (
+        f"========================================\n"
+        f"DECISION NOTIFICATION: Ticket {ticket_id}\n"
+        f"========================================\n"
+        f"Status:       {action_verb}\n"
+        f"Customer:     {customer}\n"
+        f"Amount:       ${amount}\n"
+        f"Assigned To:  {assigned_to}\n"
+        f"Reason:       {reason}\n\n"
+        f"NEXT STEP: {next_step}\n"
+    )
+
+    html_body = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 20px; }}
+    .card {{ background: #ffffff; border-radius: 8px; border: 1px solid #e2e8f0; max-width: 560px; margin: 0 auto; padding: 24px; }}
+    .badge {{ display: inline-block; padding: 6px 12px; border-radius: 4px; color: #ffffff; font-weight: bold; background: {badge_color}; }}
+    .table {{ width: 100%; border-collapse: collapse; margin: 16px 0; }}
+    .table td {{ padding: 8px 10px; border-bottom: 1px solid #f1f5f9; font-size: 13px; }}
+    .next-box {{ background: #f1f5f9; border-left: 4px solid {badge_color}; padding: 12px; margin-top: 16px; font-size: 13px; }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div style="margin-bottom: 12px;">
+      <span class="badge">MANAGER {action_verb}</span>
+    </div>
+    <h3 style="margin: 0 0 8px;">Decision on Ticket {ticket_id}</h3>
+    <p style="color: #64748b; font-size: 13px; margin: 0 0 16px;">
+      Hello {assigned_to}, the operations manager has reviewed and marked this ticket <strong>{action}</strong>.
+    </p>
+    <table class="table">
+      <tr><td style="color: #64748b; width: 120px;">Ticket ID:</td><td><strong>{ticket_id}</strong></td></tr>
+      <tr><td style="color: #64748b;">Customer:</td><td>{customer}</td></tr>
+      <tr><td style="color: #64748b;">Amount:</td><td><strong>${amount}</strong></td></tr>
+      <tr><td style="color: #64748b;">Reason:</td><td>{reason}</td></tr>
+    </table>
+    <div class="next-box">
+      <strong>Action for Agent:</strong><br>{next_step}
+    </div>
+  </div>
+</body>
+</html>"""
+
+    smtp_res = dispatch_smtp_email(recipient, subject, body, html_body=html_body)
+    return {
+        "dispatched": True,
+        "recipient": recipient,
+        "action": action,
+        "subject": subject,
+        "smtp": smtp_res,
+    }

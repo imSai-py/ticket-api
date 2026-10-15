@@ -17,7 +17,10 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.batch_digest import generate_batch_digest
-from app.escalation import send_escalation_alert
+from app.escalation import (
+    send_agent_action_notification,
+    send_escalation_alert,
+)
 from app.retrieval import KBRetriever
 from app.scheduler import start_daily_digest_scheduler
 from app.schemas import (
@@ -645,11 +648,23 @@ def ops_approval_action(ticket_id: str, status: str = Query(...)) -> HTMLRespons
         raise HTTPException(status_code=400, detail=str(e)) from e
 
     try:
-        update_approval_status(clean_ticket_id, new_status=approval_status.value)
+        updated_record = update_approval_status(
+            clean_ticket_id, new_status=approval_status.value
+        )
     except ValueError as e:
         raise HTTPException(
             status_code=404, detail=f"Ticket not found: {clean_ticket_id}"
         ) from e
+
+    # Notify assigned support agent of the manager decision
+    try:
+        send_agent_action_notification(updated_record, action=approval_status.value)
+    except (OSError, KeyError, ValueError) as err:
+        logger.warning(
+            "Could not dispatch agent decision notification for %s: %s",
+            clean_ticket_id,
+            err,
+        )
 
     for t in TICKETS:
         if t.get("ticket_id") == clean_ticket_id:
