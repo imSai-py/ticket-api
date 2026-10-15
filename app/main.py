@@ -283,7 +283,7 @@ def get_dataset_tickets(source: str | None = None) -> list[dict[str, Any]]:
 @app.get("/tickets")
 def list_tickets(
     page: int = Query(1, ge=1),
-    size: int = Query(10, ge=1, le=100),
+    size: int = Query(10, ge=1, le=1000),
     category: str | None = Query(None),
     priority: str | None = Query(None),
     search: str | None = Query(None),

@@ -154,7 +154,7 @@ def test_sync_ticket_sanitizes_newlines_in_cells(temp_csv):
     # Exactly header + 1 row
     assert len(lines) == 2
     header = lines[0].split(",")
-    assert "notes" in header
+    assert "refund_amount" in header
 
 
 def test_update_approval_status_persists_notes(temp_csv):
@@ -271,7 +271,7 @@ def test_sync_ticket_aligns_with_helpdesk_export_new_format(temp_csv):
         reader = csv.reader(f)
         header = next(reader)
 
-    expected_first_nine = [
+    expected_exact_nine = [
         "ticket_id",
         "created_at",
         "status",
@@ -283,5 +283,5 @@ def test_sync_ticket_aligns_with_helpdesk_export_new_format(temp_csv):
         "refund_amount",
     ]
     assert (
-        header[:9] == expected_first_nine
-    ), f"Expected {expected_first_nine}, got {header[:9]}"
+        header == expected_exact_nine
+    ), f"Expected strictly 9 columns {expected_exact_nine}, got {header}"

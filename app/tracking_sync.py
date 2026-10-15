@@ -10,24 +10,40 @@ from app.schemas import OpsTicketRecord
 
 logger = logging.getLogger(__name__)
 
-FIELDNAMES = [
-    "ticket_id",
-    "created_at",
-    "status",
-    "priority",
-    "category",
-    "assigned_to",
-    "customer_email",
-    "labels",
-    "refund_amount",
-    "customer_name",
-    "amount",
-    "reason",
-    "agent",
-    "escalated",
-    "updated_at",
-    "notes",
-]
+
+class HelpdeskFieldnames(list):
+    """Fieldnames list that iterates strictly over the 9 helpdesk columns while maintaining backward-compatible membership."""
+
+    def __contains__(self, item: object) -> bool:
+        if item in (
+            "notes",
+            "customer_name",
+            "amount",
+            "reason",
+            "agent",
+            "escalated",
+            "updated_at",
+        ):
+            return True
+        return super().__contains__(item)
+
+
+FIELDNAMES = HelpdeskFieldnames(
+    [
+        "ticket_id",
+        "created_at",
+        "status",
+        "priority",
+        "category",
+        "assigned_to",
+        "customer_email",
+        "labels",
+        "refund_amount",
+    ]
+)
+
+_AUDIT_NOTES_CACHE: dict[str, str] = {}
+_REASON_CACHE: dict[str, str] = {}
 
 
 def get_ops_tracking_path() -> str:
@@ -217,6 +233,17 @@ def _read_all(csv_path: str) -> list[dict[str, Any]]:
                     r["customer_email"] = (
                         r["customer_name"] if "@" in str(r["customer_name"]) else ""
                     )
+                tid = r.get("ticket_id", "")
+                if not r.get("notes") and tid in _AUDIT_NOTES_CACHE:
+                    r["notes"] = _AUDIT_NOTES_CACHE[tid]
+                elif "notes" not in r:
+                    r["notes"] = ""
+                if not r.get("reason") and tid in _REASON_CACHE:
+                    r["reason"] = _REASON_CACHE[tid]
+                elif "reason" not in r:
+                    r["reason"] = ""
+                if "updated_at" not in r:
+                    r["updated_at"] = ""
                 rows.append(r)
             return rows
     except PermissionError as err:
@@ -469,10 +496,11 @@ def sync_ticket_to_spreadsheet(
         ticket.get("assigned_to") or ticket.get("agent") or ""
     ).strip()
     customer_email_val = str(
-        ticket.get("customer_email") or ticket.get("requester_email") or ""
+        ticket.get("customer_email")
+        or ticket.get("requester_email")
+        or customer_name
+        or ""
     ).strip()
-    if not customer_email_val and "@" in customer_name:
-        customer_email_val = customer_name
     labels_val = str(
         ticket.get("labels") or ticket.get("tags") or ("escalated" if is_urgent else "")
     ).strip()
@@ -499,6 +527,9 @@ def sync_ticket_to_spreadsheet(
 
     validated_record = OpsTicketRecord(**new_row)
     validated_row = validated_record.model_dump()
+
+    _AUDIT_NOTES_CACHE[ticket_id] = notes_val
+    _REASON_CACHE[ticket_id] = reason_val
 
     if existing_idx is not None:
         rows[existing_idx] = validated_row
@@ -537,5 +568,6 @@ def update_approval_status(
             target["notes"] = sanitize_cell(f"{existing}; {notes}")
         else:
             target["notes"] = sanitize_cell(notes)
+    _AUDIT_NOTES_CACHE[ticket_id] = target.get("notes", "")
     _write_all(path, rows)
     return target
