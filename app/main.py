@@ -189,7 +189,6 @@ def health_check() -> JSONResponse:
             "storage": checks["storage"],
             "tickets_data": checks["tickets_data"],
             "knowledge_base": checks["knowledge_base"],
-            "checks": checks,
         },
     )
 

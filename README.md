@@ -108,11 +108,9 @@ The service exposes an automated health probe designed for container health chec
   {
     "status": "healthy",
     "version": "1.0.0",
-    "checks": {
-      "storage": "accessible",
-      "tickets_data": "loaded",
-      "knowledge_base": "indexed"
-    }
+    "storage": "accessible",
+    "tickets_data": "loaded",
+    "knowledge_base": "indexed"
   }
   ```
 - **Degraded Response (HTTP 503 Service Unavailable)**:

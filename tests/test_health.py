@@ -14,9 +14,6 @@ def test_health_check_healthy():
     assert data["storage"] == "accessible"
     assert data["tickets_data"] == "loaded"
     assert data["knowledge_base"] == "indexed"
-    assert data["checks"]["storage"] == "accessible"
-    assert data["checks"]["tickets_data"] == "loaded"
-    assert data["checks"]["knowledge_base"] == "indexed"
 
 
 def test_health_check_degraded_when_storage_locked(monkeypatch):
