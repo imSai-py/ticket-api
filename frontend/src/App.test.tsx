@@ -193,5 +193,48 @@ describe("App Triage Component", () => {
       "Ticket TCK-1001 re-submitted successfully"
     );
   });
+
+  it("renders live tracking sheet table and download for Excel button with custom filename", async () => {
+    const mockTickets = [
+      {
+        ticket_id: "TCK-5090",
+        created_at: "16/10/2026",
+        status: "open",
+        priority: "urgent",
+        category: "Refunds",
+        assigned_to: "riya",
+        customer_email: "sailakshman212005@gmail.com",
+        labels: "escalated",
+        refund_amount: "250.00",
+      },
+    ];
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => mockTickets,
+    } as Response);
+
+    render(<App />);
+
+    expect(screen.getByTestId("tracking-sheet-table")).toBeInTheDocument();
+    const downloadBtn = screen.getByTestId("download-excel-btn");
+    expect(downloadBtn).toBeInTheDocument();
+    expect(downloadBtn).toHaveTextContent("Download for Excel");
+    expect(downloadBtn).toHaveAttribute(
+      "download",
+      "Help Desk Tracking Sheet.csv"
+    );
+    expect(downloadBtn).toHaveAttribute(
+      "href",
+      expect.stringContaining("/ops/export-tracking-sheet")
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("TCK-5090")).toBeInTheDocument();
+    });
+    expect(screen.getByText("sailakshman212005@gmail.com")).toBeInTheDocument();
+    expect(screen.getByText("$250.00")).toBeInTheDocument();
+  });
 });
+
 

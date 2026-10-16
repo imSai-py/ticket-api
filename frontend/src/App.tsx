@@ -1,4 +1,16 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+
+export interface TrackingRecord {
+  ticket_id: string;
+  created_at?: string;
+  status: string;
+  priority: string;
+  category: string;
+  assigned_to?: string;
+  customer_email?: string;
+  labels?: string;
+  refund_amount?: string;
+}
 
 export interface TriageResult {
   category: "Billing" | "Login" | "Shipping" | "Refunds" | "Technical" | "Account";
@@ -92,6 +104,12 @@ export function App() {
   const [resubmitError, setResubmitError] = useState<string | null>(null);
   const [resubmitSuccess, setResubmitSuccess] = useState<string | null>(null);
 
+  // Live Tracking Spreadsheet state
+  const [trackingRecords, setTrackingRecords] = useState<TrackingRecord[]>([]);
+  const [trackingLoading, setTrackingLoading] = useState(false);
+  const [trackingError, setTrackingError] = useState<string | null>(null);
+  const [trackingFilter, setTrackingFilter] = useState("all");
+
   const env = (import.meta as unknown as { env?: CustomImportMetaEnv }).env;
   const defaultBaseUrl =
     typeof window !== "undefined" && window.location.port === "5173"
@@ -101,6 +119,35 @@ export function App() {
     env?.VITE_API_BASE_URL !== undefined && env.VITE_API_BASE_URL !== ""
       ? env.VITE_API_BASE_URL
       : defaultBaseUrl;
+
+  const fetchTrackingRecords = async () => {
+    try {
+      setTrackingLoading(true);
+      setTrackingError(null);
+      const res = await fetch(`${apiBaseUrl}/tickets?size=100`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setTrackingRecords(data);
+        }
+      }
+    } catch {
+      // Non-blocking in offline or unit test environments
+    } finally {
+      setTrackingLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTrackingRecords();
+  }, []);
+
+  const filteredTrackingRecords =
+    trackingFilter === "all"
+      ? trackingRecords
+      : trackingRecords.filter(
+          (r) => r.category?.toLowerCase() === trackingFilter.toLowerCase()
+        );
 
 
   const handleLoadSample = () => {
@@ -155,6 +202,7 @@ export function App() {
 
       const data: HelpdeskIngestResult = await response.json();
       setIngestResult(data);
+      fetchTrackingRecords();
     } catch (err: unknown) {
       setIngestError(
         err instanceof Error ? err.message : "Failed to ingest helpdesk query."
@@ -207,6 +255,7 @@ TCK-5043,2026-10-05 14:02,resolved,normal,Technical,riya,ava.stone@example.com,,
 
       const data: BatchIngestResult = await response.json();
       setBatchResult(data);
+      fetchTrackingRecords();
     } catch (err: unknown) {
       setBatchError(
         err instanceof Error ? err.message : "Failed to import batch CSV."
@@ -256,6 +305,7 @@ TCK-5043,2026-10-05 14:02,resolved,normal,Technical,riya,ava.stone@example.com,,
         setResubmitSuccess(
           `Ticket ${resubmitTicketId} re-submitted successfully and returned to Pending queue for manager approval.`
         );
+        fetchTrackingRecords();
       }
     } catch (err: unknown) {
       setResubmitError(
@@ -697,7 +747,220 @@ TCK-5043,2026-10-05 14:02,resolved,normal,Technical,riya,ava.stone@example.com,,
         )}
       </div>
 
+      {/* Live Help Desk Tracking Sheet Card */}
+      <div className="card" style={{ border: "2px solid #2563eb", marginBottom: "2rem" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "0.75rem",
+            flexWrap: "wrap",
+            gap: "0.75rem",
+          }}
+        >
+          <div>
+            <h2 style={{ margin: 0, color: "#1e40af", fontSize: "1.25rem" }}>
+              📊 Live Help Desk Tracking Sheet (Spreadsheet View)
+            </h2>
+            <p style={{ margin: "0.25rem 0 0 0", color: "#4b5563", fontSize: "0.9rem" }}>
+              Real-time synchronization with operational tracking spreadsheet. Displays all incoming customer queries, priorities, and refund amounts.
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+            <a
+              href={`${apiBaseUrl}/ops/export-tracking-sheet`}
+              download="Help Desk Tracking Sheet.csv"
+              data-testid="download-excel-btn"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.4rem",
+                background: "#16a34a",
+                color: "#ffffff",
+                padding: "0.5rem 1rem",
+                borderRadius: "6px",
+                fontWeight: 600,
+                fontSize: "0.9rem",
+                textDecoration: "none",
+                boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+              }}
+            >
+              📥 Download for Excel
+            </a>
+            <button
+              type="button"
+              onClick={fetchTrackingRecords}
+              disabled={trackingLoading}
+              aria-label="Refresh Table"
+              data-testid="refresh-table-btn"
+              style={{
+                background: "#f1f5f9",
+                color: "#334155",
+                border: "1px solid #cbd5e1",
+                borderRadius: "6px",
+                padding: "0.5rem 0.9rem",
+                fontSize: "0.85rem",
+                cursor: trackingLoading ? "not-allowed" : "pointer",
+                fontWeight: 600,
+              }}
+            >
+              {trackingLoading ? "Refreshing..." : "🔄 Refresh Table"}
+            </button>
+          </div>
+        </div>
 
+        {/* Filter Toolbar */}
+        <div
+          style={{
+            display: "flex",
+            gap: "0.5rem",
+            alignItems: "center",
+            marginBottom: "1rem",
+            flexWrap: "wrap",
+          }}
+        >
+          <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "#475569" }}>Filter Category:</span>
+          {["all", "Refunds", "Billing", "Login", "Technical", "Shipping", "Account"].map((cat) => (
+            <button
+              key={cat}
+              type="button"
+              onClick={() => setTrackingFilter(cat)}
+              style={{
+                background: trackingFilter === cat ? "#1e40af" : "#f1f5f9",
+                color: trackingFilter === cat ? "#ffffff" : "#475569",
+                border: trackingFilter === cat ? "1px solid #1e40af" : "1px solid #cbd5e1",
+                borderRadius: "20px",
+                padding: "0.2rem 0.75rem",
+                fontSize: "0.8rem",
+                fontWeight: trackingFilter === cat ? 700 : 500,
+                cursor: "pointer",
+              }}
+            >
+              {cat === "all" ? "All Categories" : cat}
+            </button>
+          ))}
+          <span style={{ marginLeft: "auto", fontSize: "0.85rem", color: "#64748b" }}>
+            Total Records: <strong>{filteredTrackingRecords.length}</strong>
+          </span>
+        </div>
+
+        {trackingError && (
+          <div className="alert-error" role="alert" style={{ marginBottom: "1rem" }}>
+            <strong>Notice:</strong> {trackingError}
+          </div>
+        )}
+
+        <div style={{ overflowX: "auto" }}>
+          <table
+            data-testid="tracking-sheet-table"
+            style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem", background: "#ffffff" }}
+          >
+            <thead>
+              <tr style={{ background: "#f8fafc", textAlign: "left", borderBottom: "2px solid #e2e8f0" }}>
+                <th style={{ padding: "0.6rem" }}>Ticket ID</th>
+                <th style={{ padding: "0.6rem" }}>Created</th>
+                <th style={{ padding: "0.6rem" }}>Status</th>
+                <th style={{ padding: "0.6rem" }}>Priority</th>
+                <th style={{ padding: "0.6rem" }}>Category</th>
+                <th style={{ padding: "0.6rem" }}>Refund Amount</th>
+                <th style={{ padding: "0.6rem" }}>Customer</th>
+                <th style={{ padding: "0.6rem" }}>Assigned To</th>
+                <th style={{ padding: "0.6rem" }}>Labels</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredTrackingRecords.length === 0 ? (
+                <tr>
+                  <td colSpan={9} style={{ padding: "1.5rem", textAlign: "center", color: "#64748b" }}>
+                    {trackingLoading ? "Loading tracking records..." : "No tracking records found."}
+                  </td>
+                </tr>
+              ) : (
+                filteredTrackingRecords.map((r) => {
+                  const amt = parseFloat(r.refund_amount || "0");
+                  const pLower = (r.priority || "normal").toLowerCase();
+                  return (
+                    <tr key={r.ticket_id} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                      <td style={{ padding: "0.5rem 0.6rem", fontWeight: 700, color: "#0f172a" }}>
+                        {r.ticket_id}
+                      </td>
+                      <td style={{ padding: "0.5rem 0.6rem", color: "#64748b" }}>
+                        {r.created_at || "-"}
+                      </td>
+                      <td style={{ padding: "0.5rem 0.6rem" }}>
+                        <span
+                          style={{
+                            background:
+                              r.status?.toLowerCase() === "approved" || r.status?.toLowerCase() === "resolved"
+                                ? "#dcfce7"
+                                : r.status?.toLowerCase() === "needs_info" || r.status?.toLowerCase() === "pending"
+                                ? "#fef3c7"
+                                : "#e0e7ff",
+                            color:
+                              r.status?.toLowerCase() === "approved" || r.status?.toLowerCase() === "resolved"
+                                ? "#166534"
+                                : r.status?.toLowerCase() === "needs_info" || r.status?.toLowerCase() === "pending"
+                                ? "#92400e"
+                                : "#3730a3",
+                            padding: "0.2rem 0.5rem",
+                            borderRadius: "4px",
+                            fontSize: "0.75rem",
+                            fontWeight: 600,
+                          }}
+                        >
+                          {r.status || "open"}
+                        </span>
+                      </td>
+                      <td style={{ padding: "0.5rem 0.6rem" }}>
+                        <span className={`badge badge-priority-${pLower}`}>
+                          {pLower.toUpperCase()}
+                        </span>
+                      </td>
+                      <td style={{ padding: "0.5rem 0.6rem" }}>
+                        <span className="badge badge-category">{r.category || "General"}</span>
+                      </td>
+                      <td
+                        style={{
+                          padding: "0.5rem 0.6rem",
+                          fontWeight: 700,
+                          color: amt > 0 ? "#b45309" : "#64748b",
+                        }}
+                      >
+                        ${amt.toFixed(2)}
+                      </td>
+                      <td style={{ padding: "0.5rem 0.6rem", color: "#334155" }}>
+                        {r.customer_email || "Customer"}
+                      </td>
+                      <td style={{ padding: "0.5rem 0.6rem", color: "#334155" }}>
+                        {r.assigned_to || "Unassigned"}
+                      </td>
+                      <td style={{ padding: "0.5rem 0.6rem", color: "#64748b" }}>
+                        {r.labels ? (
+                          <span
+                            style={{
+                              background: r.labels.toLowerCase().includes("escalated") ? "#fee2e2" : "#f1f5f9",
+                              color: r.labels.toLowerCase().includes("escalated") ? "#991b1b" : "#475569",
+                              padding: "0.15rem 0.45rem",
+                              borderRadius: "4px",
+                              fontSize: "0.75rem",
+                              fontWeight: 600,
+                            }}
+                          >
+                            {r.labels}
+                          </span>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
