@@ -120,6 +120,26 @@ def extract_amount(text: str) -> tuple[float, str]:
         except ValueError:
             pass
 
+    # Pure numeric string (e.g. from refund_amount "480" or "80.50") defaults to USD
+    raw_num_match = re.fullmatch(r"\s*([0-9]+(?:\.[0-9]{1,2})?)\s*", text)
+    if raw_num_match:
+        try:
+            return float(raw_num_match.group(1)), ""
+        except ValueError:
+            pass
+
+    # Labeled refund amount pattern (e.g. "refund amount 480", "refund: 480")
+    refund_text_match = re.search(
+        r"(?:refund\s*(?:amount)?|amount)[:\s]+([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)",
+        text,
+        re.IGNORECASE,
+    )
+    if refund_text_match:
+        try:
+            return float(refund_text_match.group(1).replace(",", "")), ""
+        except ValueError:
+            pass
+
     return 0.0, "Needs amount verification"
 
 
@@ -199,15 +219,60 @@ def _write_all(csv_path: str, rows: list[dict[str, Any]]) -> None:
         ) from err
 
 
+def parse_label_tokens(labels_val: Any) -> set[str]:
+    """Parse labels string into a normalized set of discrete lower-case tokens."""
+    if not labels_val:
+        return set()
+    clean = str(labels_val).strip().lower()
+    return {t.strip() for t in re.split(r"[,;|\s]+", clean) if t.strip()}
+
+
+def check_escalation_in_labels(labels_val: Any) -> bool:
+    """Check if labels contain escalated or esc tokens."""
+    tokens = parse_label_tokens(labels_val)
+    return bool(tokens & {"escalated", "esc"})
+
+
+def check_vip_in_labels(labels_val: Any) -> bool:
+    """Check if labels contain vip token."""
+    tokens = parse_label_tokens(labels_val)
+    return "vip" in tokens
+
+
+def resolve_ticket_priority_and_escalation(
+    ticket: OpsTicketRecord | dict[str, Any],
+) -> tuple[str, bool]:
+    """Resolve effective priority and escalation boolean based on labels hierarchy."""
+    if isinstance(ticket, OpsTicketRecord):
+        current_priority = ticket.priority.lower()
+        current_escalated = (
+            current_priority == "urgent" or ticket.escalated.lower() == "true"
+        )
+        labels_val = getattr(ticket, "labels", None)
+    else:
+        current_priority = str(ticket.get("priority") or "normal").lower()
+        raw_esc = ticket.get("escalated")
+        current_escalated = (
+            current_priority == "urgent"
+            or str(raw_esc).lower() == "true"
+            or raw_esc is True
+        )
+        labels_val = ticket.get("labels") or ticket.get("tags")
+
+    if check_escalation_in_labels(labels_val):
+        return ("urgent", True)
+    if check_vip_in_labels(labels_val):
+        if current_escalated:
+            return ("urgent", True)
+        return ("high", False)
+
+    return ("urgent" if current_escalated else current_priority, current_escalated)
+
+
 def is_ticket_urgent(ticket: OpsTicketRecord | dict[str, Any]) -> bool:
     """Determine whether a ticket is urgent or explicitly escalated."""
-    if isinstance(ticket, OpsTicketRecord):
-        return ticket.priority == "urgent" or ticket.escalated.lower() == "true"
-    return (
-        ticket.get("priority") == "urgent"
-        or str(ticket.get("escalated", "")).lower() == "true"
-        or ticket.get("escalated") is True
-    )
+    _, is_urgent = resolve_ticket_priority_and_escalation(ticket)
+    return is_urgent
 
 
 def _find_max_ticket_number(path: Path | str) -> int:
@@ -282,21 +347,49 @@ def sync_ticket_to_spreadsheet(
     if not ticket_id:
         ticket_id = get_next_ticket_id(csv_path=path)
 
+    effective_priority, is_urgent = resolve_ticket_priority_and_escalation(ticket)
+
+    customer_email = str(
+        ticket.get("customer_email") or ticket.get("requester_email") or ""
+    ).strip()
+    raw_customer_name = str(ticket.get("customer_name") or "").strip()
+    if not raw_customer_name or raw_customer_name.lower() == "customer":
+        customer_name = customer_email if customer_email else "Customer"
+    else:
+        customer_name = raw_customer_name
+
     # Determine amount & verification note (checking subject, reason, and text)
+    refund_amt = ticket.get("refund_amount")
     provided_amount = ticket.get("amount")
     text_content = f"{ticket.get('subject', '')} {ticket.get('reason', '')} {ticket.get('text', '')}".strip()
 
     verification_note = ""
-    if provided_amount is not None and float(provided_amount) > 0:
-        amount_val = float(provided_amount)
+    if refund_amt is not None and str(refund_amt).strip() != "":
+        amount_val = normalize_currency_amount(refund_amt)
+        if amount_val == 0.0 and str(refund_amt).strip() not in (
+            "0",
+            "0.0",
+            "0.00",
+            "$0",
+            "$0.00",
+        ):
+            amount_val, verification_note = extract_amount(text_content)
+    elif provided_amount is not None and str(provided_amount).strip() != "":
+        amount_val = normalize_currency_amount(provided_amount)
+        if amount_val == 0.0 and str(provided_amount).strip() not in (
+            "0",
+            "0.0",
+            "0.00",
+            "$0",
+            "$0.00",
+        ):
+            amount_val, verification_note = extract_amount(text_content)
     else:
         amount_val, verification_note = extract_amount(text_content)
 
     existing_idx = next(
         (i for i, r in enumerate(rows) if r["ticket_id"] == ticket_id), None
     )
-
-    is_urgent = is_ticket_urgent(ticket)
 
     # If ticket already exists and status was not explicitly passed in payload, retain existing status
     if existing_idx is not None:
@@ -321,6 +414,11 @@ def sync_ticket_to_spreadsheet(
     elif existing_notes:
         notes_parts.append(existing_notes)
 
+    if customer_email and customer_email != customer_name:
+        email_note = f"email: {customer_email}"
+        if email_note not in notes_parts:
+            notes_parts.append(email_note)
+
     if verification_note and verification_note not in notes_parts:
         notes_parts.append(verification_note)
 
@@ -337,9 +435,9 @@ def sync_ticket_to_spreadsheet(
 
     new_row: dict[str, Any] = {
         "ticket_id": sanitize_cell(ticket_id),
-        "customer_name": sanitize_cell(ticket.get("customer_name") or "Customer"),
+        "customer_name": sanitize_cell(customer_name),
         "category": sanitize_cell(ticket.get("category", "Billing")),
-        "priority": sanitize_cell(ticket.get("priority", "normal")),
+        "priority": sanitize_cell(effective_priority),
         "amount": f"{amount_val:.2f}",
         "reason": sanitize_cell(reason_val),
         "agent": sanitize_cell(ticket.get("agent") or "Mara"),

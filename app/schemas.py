@@ -115,6 +115,11 @@ class SyncTicketRequest(BaseModel):
     agent: str = Field(default="Mara", description="Support agent handling ticket")
     escalated: bool = Field(default=False, description="Manual escalation flag")
     notes: str = Field(default="", description="Optional initial notes")
+    customer_email: str = Field(default="", description="Customer contact email")
+    labels: str = Field(default="", description="Ticket labels or tags")
+    refund_amount: float | str | None = Field(
+        default=None, description="Pre-populated refund amount"
+    )
 
     model_config = ConfigDict(use_enum_values=True)
 
