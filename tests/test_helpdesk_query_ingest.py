@@ -133,3 +133,22 @@ def test_ingest_helpdesk_query_auto_escalates_on_urgent_subject(client):
     assert data["refund_amount"] == 250.0
     assert "escalated" in data["record"]["labels"].lower()
     assert data["record"]["customer_email"] == "sailakshman212005@gmail.com"
+
+
+def test_get_tracking_records_and_clear_endpoint(client):
+    """Test getting live tracking records and wiping tracking sheet clean."""
+    # Ensure newly ingested ticket is present in tracking-records
+    res = client.get("/ops/tracking-records")
+    assert res.status_code == 200
+    records = res.json()
+    assert isinstance(records, list)
+
+    # Clear tracking sheet
+    clear_res = client.post("/ops/clear-tracking-sheet")
+    assert clear_res.status_code == 200
+    assert clear_res.json()["status"] == "cleared"
+
+    # Confirm it is empty now
+    res_after = client.get("/ops/tracking-records")
+    assert res_after.status_code == 200
+    assert res_after.json() == []

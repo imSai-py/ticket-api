@@ -38,6 +38,8 @@ from app.schemas import (
 from app.tracking_sync import (
     FIELDNAMES,
     SpreadsheetLockedError,
+    _read_all,
+    _write_all,
     check_storage_health,
     extract_amount,
     extract_operational_reason,
@@ -410,37 +412,35 @@ def get_ingest_helpdesk_info() -> JSONResponse:
     )
 
 
+@app.get("/ops/tracking-records")
+def get_tracking_records() -> list[dict[str, Any]]:
+    """Return live operational tracking records strictly from ops_tracking_sheet.csv."""
+    rows = _read_all(get_ops_tracking_path())
+    return list(reversed(rows))
+
+
+@app.post("/ops/clear-tracking-sheet")
+def clear_tracking_sheet() -> JSONResponse:
+    """Clear all operational tracking sheet records to start completely fresh."""
+    _write_all(get_ops_tracking_path(), [])
+    return JSONResponse(
+        status_code=200,
+        content={
+            "status": "cleared",
+            "message": "Operational tracking sheet wiped successfully. Ready for live ingestion.",
+        },
+    )
+
+
 @app.get("/ops/export-tracking-sheet")
 def export_tracking_sheet() -> Response:
     """Download current operational tracking spreadsheet as CSV for Microsoft Excel."""
-    tracking_path = Path(get_ops_tracking_path())
-    if tracking_path.exists() and tracking_path.stat().st_size > 0:
-        csv_content = tracking_path.read_text(encoding="utf-8")
-    else:
-        output = io.StringIO()
-        writer = csv.DictWriter(output, fieldnames=FIELDNAMES, extrasaction="ignore")
-        writer.writeheader()
-        for t in TICKETS:
-            row = {
-                "ticket_id": t.get("ticket_id", ""),
-                "created_at": (
-                    t.get("created_at")
-                    or (
-                        t.get("created").strftime("%d/%m/%Y")
-                        if t.get("created")
-                        else ""
-                    )
-                ),
-                "status": t.get("status", "open"),
-                "priority": t.get("priority", "normal"),
-                "category": t.get("category", "General"),
-                "assigned_to": t.get("assigned_to") or t.get("agent", "Unassigned"),
-                "customer_email": t.get("customer_email", ""),
-                "labels": t.get("labels", ""),
-                "refund_amount": f"{normalize_currency_amount(t.get('refund_amount', 0.0)):.2f}",
-            }
-            writer.writerow(row)
-        csv_content = output.getvalue()
+    rows = _read_all(get_ops_tracking_path())
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=FIELDNAMES, extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(rows)
+    csv_content = output.getvalue()
 
     return Response(
         content=csv_content,
