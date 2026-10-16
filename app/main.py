@@ -500,6 +500,17 @@ def ingest_helpdesk_query(
         "updates@",
         "alert@",
         "alerts@",
+        "arcamax.com",
+        "amazon.in",
+        "amazon.com",
+        "flipkart.com",
+        "shopifyemail.com",
+        "internshala.com",
+        "quora.com",
+        "scufgaming.com",
+        "mybharat.gov.in",
+        "ecomspire.in",
+        "xbox.com",
     )
     if any(s in sender_lower for s in automated_patterns):
         return HelpdeskQueryIngestResponse(
@@ -931,6 +942,7 @@ def ops_approval_action(
             err,
         )
 
+    clean_ticket_id = updated_record.get("ticket_id", clean_ticket_id)
     for t in TICKETS:
         if t.get("ticket_id") == clean_ticket_id:
             t["status"] = approval_status.value
