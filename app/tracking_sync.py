@@ -440,7 +440,7 @@ def sync_ticket_to_spreadsheet(
         "priority": sanitize_cell(effective_priority),
         "amount": f"{amount_val:.2f}",
         "reason": sanitize_cell(reason_val),
-        "agent": sanitize_cell(ticket.get("agent") or "Mara"),
+        "agent": sanitize_cell(ticket.get("agent") or ""),
         "status": sanitize_cell(status_val),
         "escalated": "True" if is_urgent else "False",
         "created_at": sanitize_cell(created_time),

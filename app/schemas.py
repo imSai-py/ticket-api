@@ -49,7 +49,7 @@ class TriageRequest(BaseModel):
     ticket_id: str = Field(
         default="", description="Optional help desk ticket ID (e.g. TCK-1020)"
     )
-    agent: str = Field(default="Mara", description="Support agent handling the ticket")
+    agent: str = Field(default="", description="Support agent handling the ticket")
     reason: str = Field(
         default="", description="Optional specific reason for ticket approval"
     )
@@ -87,7 +87,7 @@ class OpsTicketRecord(BaseModel):
     priority: str = Field(default="normal", description="Ticket urgency priority")
     amount: str = Field(default="0.00", description="Formatted dollar amount")
     reason: str = Field(default="", description="Operational justification")
-    agent: str = Field(default="Mara", description="Handling agent name")
+    agent: str = Field(default="", description="Handling agent name")
     status: str = Field(default="Pending", description="Approval lifecycle state")
     escalated: str = Field(default="False", description="Urgent escalation flag")
     created_at: str = Field(default="", description="Creation timestamp")
@@ -112,7 +112,7 @@ class SyncTicketRequest(BaseModel):
         default=None, ge=0.0, description="Monetary amount if known"
     )
     reason: str = Field(default="", description="Ticket reason")
-    agent: str = Field(default="Mara", description="Support agent handling ticket")
+    agent: str = Field(default="", description="Support agent handling ticket")
     escalated: bool = Field(default=False, description="Manual escalation flag")
     notes: str = Field(default="", description="Optional initial notes")
     customer_email: str = Field(default="", description="Customer contact email")
