@@ -7,85 +7,40 @@ describe("App Triage Component", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders form inputs and submission button", () => {
+  it("renders core operations forms and ensures legacy form is removed", () => {
     render(<App />);
-    expect(screen.getByLabelText(/customer name/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/ticket subject/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/ticket body/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /triage ticket/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/query subject/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/customer email/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/problem/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /ingest & sync to spreadsheet/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /upload & ingest batch csv/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /re-submit ticket/i })
+    ).toBeInTheDocument();
+
+    // Verify duplicate legacy form is completely removed
+    expect(
+      screen.queryByRole("button", { name: /review ticket with ai/i })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /triage ticket/i })
+    ).not.toBeInTheDocument();
   });
 
-  it("submits ticket and displays triage result", async () => {
-    const mockTriageResult = {
-      category: "Login",
-      priority: "high",
-      suggested_reply: "Please use 'Forgot password' to reset your access. Email arrives within 10 minutes.",
-      article_ids: ["KB-001"],
-    };
-
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => mockTriageResult,
-    } as Response);
-
+  it("shows validation message when submitting empty query form", async () => {
     render(<App />);
-
-    fireEvent.change(screen.getByLabelText(/customer name/i), {
-      target: { value: "Jane Doe" },
-    });
-    fireEvent.change(screen.getByLabelText(/ticket subject/i), {
-      target: { value: "Cannot log in" },
-    });
-    fireEvent.change(screen.getByLabelText(/ticket body/i), {
-      target: { value: "Reset password email never arrives" },
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /triage ticket/i }));
-
-    await waitFor(() => {
-      expect(screen.getByTestId("triage-result")).toBeInTheDocument();
-    });
-
-    expect(screen.getByTestId("result-category")).toHaveTextContent("Login");
-    expect(screen.getByTestId("result-priority")).toHaveTextContent("HIGH");
-    expect(screen.getByTestId("result-reply")).toHaveTextContent("Please use 'Forgot password'");
-    expect(screen.getByTestId("result-sources")).toHaveTextContent("KB-001");
-  });
-
-  it("displays error state when submission fails", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 422,
-      json: async () => ({ detail: "Invalid ticket input" }),
-    } as Response);
-
-    render(<App />);
-
-    fireEvent.change(screen.getByLabelText(/customer name/i), {
-      target: { value: "Jane Doe" },
-    });
-    fireEvent.change(screen.getByLabelText(/ticket subject/i), {
-      target: { value: "Test Subject" },
-    });
-    fireEvent.change(screen.getByLabelText(/ticket body/i), {
-      target: { value: "Test Body" },
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /triage ticket/i }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toBeInTheDocument();
-    });
-
-    expect(screen.getByRole("alert")).toHaveTextContent("Invalid ticket input");
-  });
-
-  it("shows local validation message when submitting completely empty form", async () => {
-    render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: /triage ticket/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /ingest & sync to spreadsheet/i })
+    );
 
     expect(screen.getByRole("alert")).toBeInTheDocument();
-    expect(screen.getByRole("alert")).toHaveTextContent(/customer name is required/i);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /please provide a query subject or problem description/i
+    );
   });
 
   it("loads sample helpdesk query when clicking sample button", () => {
@@ -238,5 +193,48 @@ describe("App Triage Component", () => {
       "Ticket TCK-1001 re-submitted successfully"
     );
   });
+
+  it("renders live tracking sheet table and download for Excel button with custom filename", async () => {
+    const mockTickets = [
+      {
+        ticket_id: "TCK-5090",
+        created_at: "16/10/2026",
+        status: "open",
+        priority: "urgent",
+        category: "Refunds",
+        assigned_to: "riya",
+        customer_email: "sailakshman212005@gmail.com",
+        labels: "escalated",
+        refund_amount: "250.00",
+      },
+    ];
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => mockTickets,
+    } as Response);
+
+    render(<App />);
+
+    expect(screen.getByTestId("tracking-sheet-table")).toBeInTheDocument();
+    const downloadBtn = screen.getByTestId("download-excel-btn");
+    expect(downloadBtn).toBeInTheDocument();
+    expect(downloadBtn).toHaveTextContent("Download for Excel");
+    expect(downloadBtn).toHaveAttribute(
+      "download",
+      "Help Desk Tracking Sheet.csv"
+    );
+    expect(downloadBtn).toHaveAttribute(
+      "href",
+      expect.stringContaining("/ops/export-tracking-sheet")
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("TCK-5090")).toBeInTheDocument();
+    });
+    expect(screen.getByText("sailakshman212005@gmail.com")).toBeInTheDocument();
+    expect(screen.getByText("$250.00")).toBeInTheDocument();
+  });
 });
+
 

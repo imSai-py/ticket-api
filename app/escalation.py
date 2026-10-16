@@ -45,13 +45,19 @@ def dispatch_smtp_email(
             "message": "Pytest environment detected. Real SMTP suppressed.",
         }
 
-    smtp_host = os.getenv("SMTP_HOST")
+    smtp_host = os.getenv("SMTP_HOST") or os.getenv("SMTP_SERVER")
     smtp_port_raw = os.getenv("SMTP_PORT", "587")
-    smtp_user = os.getenv("SMTP_USER")
-    smtp_password = os.getenv("SMTP_PASSWORD")
+    smtp_user = os.getenv("SMTP_USER") or os.getenv("SMTP_USERNAME")
+    smtp_password = os.getenv("SMTP_PASSWORD") or os.getenv("SMTP_PASS")
     smtp_from = os.getenv("SMTP_FROM", smtp_user or "alerts@company.com")
 
     if not smtp_host or not smtp_user or not smtp_password:
+        logger.info(
+            "SMTP credentials not configured (host=%s, user=%s, pass=%s). Dispatched in mock mode.",
+            bool(smtp_host),
+            bool(smtp_user),
+            bool(smtp_password),
+        )
         return {
             "sent": False,
             "mode": "mock",
@@ -60,25 +66,34 @@ def dispatch_smtp_email(
 
     try:
         port = int(smtp_port_raw)
+        recipient_list = [addr.strip() for addr in to_email.split(",") if addr.strip()]
+        if not recipient_list:
+            return {
+                "sent": False,
+                "mode": "error",
+                "message": "No valid recipients provided.",
+            }
+
+        formatted_to = ", ".join(recipient_list)
         if html_body:
             msg = MIMEMultipart("alternative")
             msg["Subject"] = subject
             msg["From"] = smtp_from
-            msg["To"] = to_email
+            msg["To"] = formatted_to
             msg.attach(MIMEText(body, "plain", "utf-8"))
             msg.attach(MIMEText(html_body, "html", "utf-8"))
         else:
             msg = MIMEText(body, "plain", "utf-8")
             msg["Subject"] = subject
             msg["From"] = smtp_from
-            msg["To"] = to_email
+            msg["To"] = formatted_to
 
         with smtplib.SMTP(smtp_host, port, timeout=10) as server:
             server.starttls()
             server.login(smtp_user, smtp_password)
-            server.sendmail(smtp_from, [to_email], msg.as_string())
-        logger.info("Real SMTP email successfully delivered to %s", to_email)
-        return {"sent": True, "mode": "smtp", "recipient": to_email}
+            server.sendmail(smtp_from, recipient_list, msg.as_string())
+        logger.info("Real SMTP email successfully delivered to %s", formatted_to)
+        return {"sent": True, "mode": "smtp", "recipient": formatted_to}
     except (smtplib.SMTPException, OSError) as err:
         logger.error("SMTP delivery failed to %s: %s", to_email, err)
         return {"sent": False, "mode": "smtp_error", "error": str(err)}

@@ -91,3 +91,45 @@ def test_ingest_helpdesk_query_validation_error(client):
     }
     resp = client.post("/ops/ingest-helpdesk", json=payload)
     assert resp.status_code == 422
+
+
+def test_get_ingest_helpdesk_status_probe(client):
+    """Test GET status probe on /ops/ingest-helpdesk returns HTTP 200 ready status."""
+    resp = client.get("/ops/ingest-helpdesk")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "ready"
+    assert data["endpoint"] == "/ops/ingest-helpdesk"
+    assert data["method"] == "POST"
+
+
+def test_export_tracking_sheet_csv(client):
+    """Test GET /ops/export-tracking-sheet downloads CSV with Help Desk Tracking Sheet filename."""
+    resp = client.get("/ops/export-tracking-sheet")
+    assert resp.status_code == 200
+    assert "text/csv" in resp.headers.get("content-type", "")
+    assert 'filename="Help Desk Tracking Sheet.csv"' in resp.headers.get(
+        "content-disposition", ""
+    )
+    lines = resp.text.strip().splitlines()
+    assert len(lines) >= 1
+    assert "ticket_id" in lines[0]
+    assert "refund_amount" in lines[0]
+
+
+def test_ingest_helpdesk_query_auto_escalates_on_urgent_subject(client):
+    """Test query with 'Urgent' in subject and $250 refund automatically escalates to manager."""
+    payload = {
+        "subject": "Urgent: Refund requested for order #9822",
+        "problem": "Hello support team, I was charged $250.00 twice on my credit card. Please issue a refund.",
+        "customer_email": "sailakshman212005@gmail.com",
+    }
+    resp = client.post("/ops/ingest-helpdesk", json=payload)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["priority"] == "urgent"
+    assert data["escalated"] is True
+    assert data["refund_amount"] == 250.0
+    assert "escalated" in data["record"]["labels"].lower()
+    assert data["record"]["customer_email"] == "sailakshman212005@gmail.com"

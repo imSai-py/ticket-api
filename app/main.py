@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -36,11 +36,13 @@ from app.schemas import (
     TriageResponse,
 )
 from app.tracking_sync import (
+    FIELDNAMES,
     SpreadsheetLockedError,
     check_storage_health,
     extract_amount,
     extract_operational_reason,
     get_needs_info_approvals,
+    get_ops_tracking_path,
     get_pending_approvals,
     normalize_currency_amount,
     resolve_ticket_priority_and_escalation,
@@ -394,6 +396,62 @@ def ops_sync_ticket(req: SyncTicketRequest) -> dict[str, Any]:
     return {"ticket": row, "escalation_alert": alert}
 
 
+@app.get("/ops/ingest-helpdesk")
+def get_ingest_helpdesk_info() -> JSONResponse:
+    """Status probe for helpdesk ingest webhook endpoint."""
+    return JSONResponse(
+        status_code=200,
+        content={
+            "status": "ready",
+            "endpoint": "/ops/ingest-helpdesk",
+            "method": "POST",
+            "description": "Active webhook endpoint for real-time customer query ingestion.",
+        },
+    )
+
+
+@app.get("/ops/export-tracking-sheet")
+def export_tracking_sheet() -> Response:
+    """Download current operational tracking spreadsheet as CSV for Microsoft Excel."""
+    tracking_path = Path(get_ops_tracking_path())
+    if tracking_path.exists() and tracking_path.stat().st_size > 0:
+        csv_content = tracking_path.read_text(encoding="utf-8")
+    else:
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=FIELDNAMES, extrasaction="ignore")
+        writer.writeheader()
+        for t in TICKETS:
+            row = {
+                "ticket_id": t.get("ticket_id", ""),
+                "created_at": (
+                    t.get("created_at")
+                    or (
+                        t.get("created").strftime("%d/%m/%Y")
+                        if t.get("created")
+                        else ""
+                    )
+                ),
+                "status": t.get("status", "open"),
+                "priority": t.get("priority", "normal"),
+                "category": t.get("category", "General"),
+                "assigned_to": t.get("assigned_to") or t.get("agent", "Unassigned"),
+                "customer_email": t.get("customer_email", ""),
+                "labels": t.get("labels", ""),
+                "refund_amount": f"{normalize_currency_amount(t.get('refund_amount', 0.0)):.2f}",
+            }
+            writer.writerow(row)
+        csv_content = output.getvalue()
+
+    return Response(
+        content=csv_content,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": 'attachment; filename="Help Desk Tracking Sheet.csv"',
+            "Cache-Control": "no-cache",
+        },
+    )
+
+
 @app.post("/ops/ingest-helpdesk", response_model=HelpdeskQueryIngestResponse)
 def ingest_helpdesk_query(
     req: HelpdeskQueryIngestRequest,
@@ -429,18 +487,40 @@ def ingest_helpdesk_query(
     # 4. Resolve operational reason
     operational_reason = extract_operational_reason(clean_subj, clean_prob)
 
-    # 5. Build sync payload
+    # 5. Build sync payload with urgent and high-dollar escalation detection
+    resolved_labels = req.labels or ""
+    is_subject_urgent = bool(
+        re.search(r"\burgent\b", f"{clean_subj} {clean_prob}", re.IGNORECASE)
+    )
+    is_high_dollar = refund_val >= 200.0 and str(ai_res.category).lower() in (
+        "billing",
+        "refunds",
+    )
+
+    resolved_priority = str(ai_res.priority).lower()
+    if is_subject_urgent or resolved_priority == "urgent":
+        resolved_priority = "urgent"
+        if "escalated" not in resolved_labels.lower():
+            resolved_labels = (
+                f"{resolved_labels}, escalated" if resolved_labels else "escalated"
+            )
+    elif is_high_dollar:
+        if "escalated" not in resolved_labels.lower():
+            resolved_labels = (
+                f"{resolved_labels}, escalated" if resolved_labels else "escalated"
+            )
+
     ticket_payload: dict[str, Any] = {
         "customer_name": resolved_customer,
         "customer_email": req.customer_email,
         "category": str(ai_res.category),
-        "priority": str(ai_res.priority),
+        "priority": resolved_priority,
         "status": req.status or "open",
         "amount": f"{refund_val:.2f}",
         "refund_amount": refund_val,
         "reason": operational_reason,
         "agent": req.assigned_to or "Unassigned",
-        "labels": req.labels,
+        "labels": resolved_labels,
         "subject": clean_subj,
         "text": clean_prob,
     }
@@ -452,8 +532,9 @@ def ingest_helpdesk_query(
 
     # 7. Check priority and escalation
     effective_priority, is_urgent = resolve_ticket_priority_and_escalation(row)
-    if is_urgent:
-        send_escalation_alert(row)
+    escalated_flag = is_urgent or is_high_dollar or effective_priority == "urgent"
+    if escalated_flag:
+        send_escalation_alert(row, refund_threshold=200.0)
 
     # 8. Update in-memory TICKETS cache
     existing = next(
@@ -469,7 +550,7 @@ def ingest_helpdesk_query(
                 "assigned_to": row["agent"],
                 "customer_email": req.customer_email or existing.get("customer_email"),
                 "refund_amount": f"{refund_val:.2f}",
-                "labels": req.labels or existing.get("labels"),
+                "labels": resolved_labels or existing.get("labels"),
             }
         )
     else:
@@ -485,7 +566,7 @@ def ingest_helpdesk_query(
                 "agent": row["agent"],
                 "assigned_to": row["agent"],
                 "customer_email": req.customer_email,
-                "labels": req.labels,
+                "labels": resolved_labels,
                 "refund_amount": f"{refund_val:.2f}",
                 "reason": row["reason"],
             },
@@ -501,7 +582,7 @@ def ingest_helpdesk_query(
         assigned_to=row["agent"],
         suggested_reply=ai_res.suggested_reply,
         record=row,
-        escalated=is_urgent,
+        escalated=escalated_flag,
     )
 
 
