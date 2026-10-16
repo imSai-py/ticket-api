@@ -220,6 +220,10 @@ class HelpdeskQueryIngestResponse(BaseModel):
     escalated: bool = Field(
         default=False, description="Whether ticket triggered urgent escalation"
     )
+    escalation_alert: dict[str, Any] | None = Field(
+        default=None,
+        description="Manager escalation alert details and HTML template for immediate dispatch",
+    )
 
     model_config = ConfigDict(use_enum_values=True)
 

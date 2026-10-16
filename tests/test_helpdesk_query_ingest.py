@@ -185,3 +185,73 @@ def test_ingest_helpdesk_query_routes_unassigned_agent(client):
     assert data["assigned_to"] != "Unassigned"
     assert data["assigned_to"] in ["Sai", "Riya", "Sam", "Ken"]
     assert data["record"]["agent"] in ["Sai", "Riya", "Sam", "Ken"]
+
+
+def test_ingest_helpdesk_query_drops_automated_newsletters_and_marketing(client):
+    """Test marketing and job alert emails are automatically filtered out."""
+    for spam_sender in [
+        "recommendations@discover.pinterest.com",
+        "eventnc@naukri.com",
+        "donotreply@jobalert.indeed.com",
+        "hello@updates.truecaller.com",
+        "invitations@linkedin.com",
+        "friendsuggestion@facebookmail.com",
+    ]:
+        resp = client.post(
+            "/ops/ingest-helpdesk",
+            json={
+                "subject": "You have 5 new job recommendations",
+                "problem": "Click here to see matching positions.",
+                "customer_email": spam_sender,
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "skipped"
+
+
+def test_ingest_helpdesk_query_skips_duplicates(client):
+    """Test that repeating the identical customer inquiry skips insertion on second run."""
+    client.post("/ops/clear-tracking-sheet")
+    payload = {
+        "subject": "Urgent refund for order #1122",
+        "problem": "I requested a refund of $210.00 yesterday.",
+        "customer_email": "dup.customer@example.com",
+    }
+    # First submission: success
+    resp1 = client.post("/ops/ingest-helpdesk", json=payload)
+    assert resp1.status_code == 200
+    assert resp1.json()["status"] == "success"
+
+    # Second submission: skipped as duplicate
+    resp2 = client.post("/ops/ingest-helpdesk", json=payload)
+    assert resp2.status_code == 200
+    assert resp2.json()["status"] == "duplicate_skipped"
+
+    # Only one record in tracking sheet
+    records = client.get("/ops/tracking-records").json()
+    matching = [
+        r for r in records if r.get("customer_email") == "dup.customer@example.com"
+    ]
+    assert len(matching) == 1
+
+
+def test_ingest_helpdesk_query_includes_escalation_alert_details(client, monkeypatch):
+    """Test that urgent escalation returns full escalation_alert with HTML card and recipient."""
+    monkeypatch.setenv("ESCALATION_MANAGER_EMAIL", "sai21lakshman2005@gmail.com")
+    payload = {
+        "subject": "Urgent: Refund requested for order #7788",
+        "problem": "Please process a refund of $275.00 for order #7788.",
+        "customer_email": "urgent.customer@example.com",
+    }
+    resp = client.post("/ops/ingest-helpdesk", json=payload)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["escalated"] is True
+    alert = data.get("escalation_alert")
+    assert alert is not None
+    assert alert["dispatched"] is True
+    assert alert["recipient"] == "sai21lakshman2005@gmail.com"
+    assert "Approve" in alert["html_body"]
+    assert "Reject" in alert["html_body"]
+    assert "Need More Info" in alert["html_body"]
+    assert "/ops/approvals/action" in alert["approve_url"]

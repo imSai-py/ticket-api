@@ -420,10 +420,14 @@ def get_tracking_records() -> list[dict[str, Any]]:
     return list(reversed(rows))
 
 
+_PROCESSED_QUERY_FINGERPRINTS: set[str] = set()
+
+
 @app.post("/ops/clear-tracking-sheet")
 def clear_tracking_sheet() -> JSONResponse:
     """Clear all operational tracking sheet records to start completely fresh."""
     _write_all(get_ops_tracking_path(), [])
+    _PROCESSED_QUERY_FINGERPRINTS.clear()
     return JSONResponse(
         status_code=200,
         content={
@@ -461,18 +465,43 @@ def ingest_helpdesk_query(
     clean_subj = sanitize_cell(req.subject)
     clean_prob = sanitize_cell(req.problem)
 
-    # 0. Filter out automated system notifications and no-reply messages
+    # 0. Filter out automated system notifications, marketing, job alerts, and no-reply messages
     sender_lower = (req.customer_email or "").strip().lower()
-    if any(
-        s in sender_lower
-        for s in (
-            "no-reply",
-            "noreply",
-            "mailer-daemon",
-            "accounts.google.com",
-            "notifications@google.com",
-        )
-    ):
+    subject_lower = clean_subj.lower()
+
+    automated_patterns = (
+        "no-reply",
+        "noreply",
+        "donotreply",
+        "mailer-daemon",
+        "accounts.google.com",
+        "notifications@google.com",
+        "notifications@github.com",
+        "github.com",
+        "facebookmail.com",
+        "pinterest.com",
+        "naukri.com",
+        "indeed.com",
+        "jobalert",
+        "linkedin.com",
+        "sbi.co.in",
+        "sbi.bank.in",
+        "nptel.iitm.ac.in",
+        "postman.com",
+        "supabase.com",
+        "truecaller.com",
+        "updates.truecaller.com",
+        "remoteworldwide.net",
+        "invitations@",
+        "newsletter",
+        "digest",
+        "marketing",
+        "promo",
+        "updates@",
+        "alert@",
+        "alerts@",
+    )
+    if any(s in sender_lower for s in automated_patterns):
         return HelpdeskQueryIngestResponse(
             status="skipped",
             ticket_id="SKIPPED-SYSTEM",
@@ -490,6 +519,53 @@ def ingest_helpdesk_query(
             escalated=False,
         )
 
+    # 0.1 Deduplication check: drop repeat requests for the exact same sender & subject
+    fingerprint = f"{sender_lower}:::{subject_lower}"
+    if sender_lower and subject_lower:
+        if fingerprint in _PROCESSED_QUERY_FINGERPRINTS:
+            return HelpdeskQueryIngestResponse(
+                status="duplicate_skipped",
+                ticket_id="DUPLICATE",
+                category=CategoryEnum.BILLING,
+                priority=PriorityEnum.NORMAL,
+                refund_amount=0.0,
+                customer_name="Duplicate Request",
+                assigned_to="Sai",
+                suggested_reply="Duplicate customer request already ingested and active.",
+                record={
+                    "ticket_id": "DUPLICATE",
+                    "status": "skipped",
+                    "customer_email": req.customer_email,
+                },
+                escalated=False,
+            )
+
+        existing_rows = _read_all(get_ops_tracking_path())
+        for row_rec in existing_rows:
+            row_sender = (row_rec.get("customer_email") or "").strip().lower()
+            row_reason = (row_rec.get("reason") or "").strip().lower()
+            row_notes = (row_rec.get("notes") or "").strip().lower()
+            if row_sender == sender_lower and (
+                (subject_lower and subject_lower in row_reason)
+                or (row_reason and row_reason in subject_lower)
+                or (subject_lower and subject_lower in row_notes)
+            ):
+                _PROCESSED_QUERY_FINGERPRINTS.add(fingerprint)
+                return HelpdeskQueryIngestResponse(
+                    status="duplicate_skipped",
+                    ticket_id=row_rec.get("ticket_id", "DUPLICATE"),
+                    category=CategoryEnum.BILLING,
+                    priority=PriorityEnum.NORMAL,
+                    refund_amount=0.0,
+                    customer_name=row_rec.get("customer_name", "Customer"),
+                    assigned_to=row_rec.get("assigned_to", "Sai"),
+                    suggested_reply="Duplicate customer request already ingested and active.",
+                    record=row_rec,
+                    escalated=False,
+                )
+
+        _PROCESSED_QUERY_FINGERPRINTS.add(fingerprint)
+
     # 1. AI analysis: predict category, priority, and grounded reply
     matched = retriever.retrieve(clean_subj, clean_prob)
     ai_res = classify_and_reply(clean_subj, clean_prob, matched_articles=matched)
@@ -503,6 +579,19 @@ def ingest_helpdesk_query(
         extracted, _ = extract_amount(combined_text)
         if extracted > 0.0:
             refund_val = extracted
+
+    # Enforce reliable category classification when refund or billing is explicitly requested
+    resolved_category = ai_res.category
+    if (
+        "refund" in combined_text.lower()
+        or refund_val > 0.0
+        or "billing" in combined_text.lower()
+    ) and str(resolved_category).lower() not in ("refunds", "billing"):
+        resolved_category = (
+            CategoryEnum.REFUNDS
+            if ("refund" in combined_text.lower() or refund_val > 0.0)
+            else CategoryEnum.BILLING
+        )
 
     # 3. Resolve customer name from input or email
     resolved_customer = req.customer_name.strip() if req.customer_name else ""
@@ -522,7 +611,7 @@ def ingest_helpdesk_query(
     is_subject_urgent = bool(
         re.search(r"\burgent\b", f"{clean_subj} {clean_prob}", re.IGNORECASE)
     )
-    is_high_dollar = refund_val >= 200.0 and str(ai_res.category).lower() in (
+    is_high_dollar = refund_val >= 200.0 and str(resolved_category).lower() in (
         "billing",
         "refunds",
     )
@@ -561,7 +650,7 @@ def ingest_helpdesk_query(
     ticket_payload: dict[str, Any] = {
         "customer_name": resolved_customer,
         "customer_email": req.customer_email,
-        "category": str(ai_res.category),
+        "category": str(resolved_category),
         "priority": resolved_priority,
         "status": req.status or "open",
         "amount": f"{refund_val:.2f}",
@@ -581,8 +670,9 @@ def ingest_helpdesk_query(
     # 7. Check priority and escalation
     effective_priority, is_urgent = resolve_ticket_priority_and_escalation(row)
     escalated_flag = is_urgent or is_high_dollar or effective_priority == "urgent"
+    alert_info: dict[str, Any] | None = None
     if escalated_flag:
-        send_escalation_alert(row, refund_threshold=200.0)
+        alert_info = send_escalation_alert(row, refund_threshold=200.0)
 
     # 8. Update in-memory TICKETS cache
     existing = next(
@@ -623,7 +713,7 @@ def ingest_helpdesk_query(
     return HelpdeskQueryIngestResponse(
         status="success",
         ticket_id=row["ticket_id"],
-        category=ai_res.category,
+        category=resolved_category,
         priority=PriorityEnum(effective_priority.lower()),
         refund_amount=refund_val,
         customer_name=resolved_customer,
@@ -631,6 +721,7 @@ def ingest_helpdesk_query(
         suggested_reply=ai_res.suggested_reply,
         record=row,
         escalated=escalated_flag,
+        escalation_alert=alert_info,
     )
 
 
