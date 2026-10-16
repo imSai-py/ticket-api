@@ -187,6 +187,9 @@ class HelpdeskQueryIngestRequest(BaseModel):
     refund_amount: float | str | None = Field(
         default=None, description="Pre-identified refund amount"
     )
+    category: CategoryEnum | str | None = Field(
+        default=None, description="Optional explicit ticket category"
+    )
 
     model_config = ConfigDict(extra="ignore")
 

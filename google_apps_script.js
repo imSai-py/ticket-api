@@ -46,11 +46,19 @@ function pollSupportEmailsAndIngest() {
           break;
         }
 
+        const lowerSubject = subject.toLowerCase();
+        const detectedCategory = lowerSubject.includes("refund")
+          ? "Refunds"
+          : lowerSubject.includes("billing")
+          ? "Billing"
+          : "Billing";
+
         const payload = {
           subject: subject,
           problem: body,
           customer_email: fromEmail,
-          assigned_to: "Sai"
+          assigned_to: "Sai",
+          category: detectedCategory
         };
 
         const options = {

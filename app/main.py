@@ -417,6 +417,36 @@ def get_ingest_helpdesk_info() -> JSONResponse:
 def get_tracking_records() -> list[dict[str, Any]]:
     """Return live operational tracking records strictly from ops_tracking_sheet.csv."""
     rows = _read_all(get_ops_tracking_path())
+    for r in rows:
+        cat = str(r.get("category", "")).strip().lower()
+        text_check = (
+            str(r.get("reason", ""))
+            + " "
+            + str(r.get("notes", ""))
+            + " "
+            + str(r.get("labels", ""))
+        ).lower()
+        amt_val = 0.0
+        try:
+            amt_val = float(str(r.get("refund_amount", "0")).replace("$", "").strip())
+        except ValueError:
+            amt_val = 0.0
+
+        if cat in ("technical", "general", ""):
+            if "refund" in text_check or amt_val > 0.0:
+                r["category"] = "Refunds"
+            elif any(
+                kw in text_check
+                for kw in (
+                    "billing",
+                    "invoice",
+                    "charge",
+                    "charged",
+                    "payment",
+                    "subscription",
+                )
+            ):
+                r["category"] = "Billing"
     return list(reversed(rows))
 
 
@@ -591,18 +621,36 @@ def ingest_helpdesk_query(
         if extracted > 0.0:
             refund_val = extracted
 
-    # Enforce reliable category classification when refund or billing is explicitly requested
-    resolved_category = ai_res.category
-    if (
-        "refund" in combined_text.lower()
-        or refund_val > 0.0
-        or "billing" in combined_text.lower()
-    ) and str(resolved_category).lower() not in ("refunds", "billing"):
-        resolved_category = (
-            CategoryEnum.REFUNDS
-            if ("refund" in combined_text.lower() or refund_val > 0.0)
-            else CategoryEnum.BILLING
+    # Enforce reliable category classification: refund or billing must NEVER show as technical
+    lower_content = combined_text.lower()
+    if "refund" in lower_content or refund_val > 0.0 or "return" in lower_content:
+        resolved_category = CategoryEnum.REFUNDS
+    elif any(
+        kw in lower_content
+        for kw in (
+            "billing",
+            "invoice",
+            "charge",
+            "charged",
+            "payment",
+            "subscription",
+            "statement",
+            "double charge",
+            "fee",
         )
+    ):
+        resolved_category = CategoryEnum.BILLING
+    elif req.category:
+        try:
+            resolved_category = (
+                CategoryEnum(str(req.category))
+                if isinstance(req.category, str)
+                else req.category
+            )
+        except ValueError:
+            resolved_category = ai_res.category
+    else:
+        resolved_category = ai_res.category
 
     # 3. Resolve customer name from input or email
     resolved_customer = req.customer_name.strip() if req.customer_name else ""
