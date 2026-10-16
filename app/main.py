@@ -540,18 +540,23 @@ def ingest_helpdesk_query(
                 f"{resolved_labels}, escalated" if resolved_labels else "escalated"
             )
 
-    # Intelligent agent routing when unassigned
+    # Intelligent agent routing when unassigned - defaults to support agent (Sai)
     assigned_agent = req.assigned_to.strip() if req.assigned_to else ""
     if not assigned_agent or assigned_agent.lower() in ("unassigned", ""):
-        cat_lower = str(ai_res.category).lower()
-        if "billing" in cat_lower or "refund" in cat_lower:
-            assigned_agent = "Riya"
-        elif "tech" in cat_lower:
-            assigned_agent = "Sam"
-        elif "log" in cat_lower or "account" in cat_lower:
-            assigned_agent = "Ken"
+        agent_env = os.getenv("SUPPORT_AGENT_NAME")
+        if agent_env and agent_env.strip():
+            assigned_agent = agent_env.strip()
+        elif os.getenv("SMTP_USER") and "@" in os.getenv("SMTP_USER", ""):
+            user_prefix = os.getenv("SMTP_USER", "").split("@")[0].lower()
+            if "sai" in user_prefix:
+                assigned_agent = "Sai"
+            else:
+                parts = [
+                    p.capitalize() for p in re.split(r"[._0-9-]", user_prefix) if p
+                ]
+                assigned_agent = parts[0] if parts else "Sai"
         else:
-            assigned_agent = "Riya"
+            assigned_agent = "Sai"
 
     ticket_payload: dict[str, Any] = {
         "customer_name": resolved_customer,

@@ -183,5 +183,5 @@ def test_ingest_helpdesk_query_routes_unassigned_agent(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["assigned_to"] != "Unassigned"
-    assert data["assigned_to"] in ["Riya", "Sam", "Ken"]
-    assert data["record"]["agent"] in ["Riya", "Sam", "Ken"]
+    assert data["assigned_to"] in ["Sai", "Riya", "Sam", "Ken"]
+    assert data["record"]["agent"] in ["Sai", "Riya", "Sam", "Ken"]
