@@ -152,3 +152,36 @@ def test_get_tracking_records_and_clear_endpoint(client):
     res_after = client.get("/ops/tracking-records")
     assert res_after.status_code == 200
     assert res_after.json() == []
+
+
+def test_ingest_helpdesk_query_drops_no_reply_emails(client):
+    """Test automated Google security alerts and no-reply messages are cleanly skipped."""
+    payload = {
+        "subject": "Security alert: Access granted",
+        "problem": "Untitled project was granted access to your Google Account.",
+        "customer_email": "no-reply@accounts.google.com",
+    }
+    resp = client.post("/ops/ingest-helpdesk", json=payload)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "skipped"
+    assert data["ticket_id"] == "SKIPPED-SYSTEM"
+
+    # Confirm it was not written to tracking sheet
+    records = client.get("/ops/tracking-records").json()
+    assert not any(r.get("ticket_id") == "SKIPPED-SYSTEM" for r in records)
+
+
+def test_ingest_helpdesk_query_routes_unassigned_agent(client):
+    """Test that incoming customer query with no agent routes to default lead instead of Unassigned."""
+    payload = {
+        "subject": "Refund request for defective merchandise",
+        "problem": "Please refund $85.00 for my returned item.",
+        "customer_email": "customer.john@example.com",
+    }
+    resp = client.post("/ops/ingest-helpdesk", json=payload)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["assigned_to"] != "Unassigned"
+    assert data["assigned_to"] in ["Riya", "Sam", "Ken"]
+    assert data["record"]["agent"] in ["Riya", "Sam", "Ken"]

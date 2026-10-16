@@ -28,6 +28,7 @@ from app.scheduler import start_daily_digest_scheduler
 from app.schemas import (
     ApprovalStatusEnum,
     BatchIngestResponse,
+    CategoryEnum,
     HelpdeskQueryIngestRequest,
     HelpdeskQueryIngestResponse,
     PriorityEnum,
@@ -460,6 +461,35 @@ def ingest_helpdesk_query(
     clean_subj = sanitize_cell(req.subject)
     clean_prob = sanitize_cell(req.problem)
 
+    # 0. Filter out automated system notifications and no-reply messages
+    sender_lower = (req.customer_email or "").strip().lower()
+    if any(
+        s in sender_lower
+        for s in (
+            "no-reply",
+            "noreply",
+            "mailer-daemon",
+            "accounts.google.com",
+            "notifications@google.com",
+        )
+    ):
+        return HelpdeskQueryIngestResponse(
+            status="skipped",
+            ticket_id="SKIPPED-SYSTEM",
+            category=CategoryEnum.TECHNICAL,
+            priority=PriorityEnum.LOW,
+            refund_amount=0.0,
+            customer_name="System Notification",
+            assigned_to="System Filter",
+            suggested_reply="Automated notification dropped by inbound filter.",
+            record={
+                "ticket_id": "SKIPPED-SYSTEM",
+                "status": "skipped",
+                "customer_email": req.customer_email,
+            },
+            escalated=False,
+        )
+
     # 1. AI analysis: predict category, priority, and grounded reply
     matched = retriever.retrieve(clean_subj, clean_prob)
     ai_res = classify_and_reply(clean_subj, clean_prob, matched_articles=matched)
@@ -510,6 +540,19 @@ def ingest_helpdesk_query(
                 f"{resolved_labels}, escalated" if resolved_labels else "escalated"
             )
 
+    # Intelligent agent routing when unassigned
+    assigned_agent = req.assigned_to.strip() if req.assigned_to else ""
+    if not assigned_agent or assigned_agent.lower() in ("unassigned", ""):
+        cat_lower = str(ai_res.category).lower()
+        if "billing" in cat_lower or "refund" in cat_lower:
+            assigned_agent = "Riya"
+        elif "tech" in cat_lower:
+            assigned_agent = "Sam"
+        elif "log" in cat_lower or "account" in cat_lower:
+            assigned_agent = "Ken"
+        else:
+            assigned_agent = "Riya"
+
     ticket_payload: dict[str, Any] = {
         "customer_name": resolved_customer,
         "customer_email": req.customer_email,
@@ -519,7 +562,7 @@ def ingest_helpdesk_query(
         "amount": f"{refund_val:.2f}",
         "refund_amount": refund_val,
         "reason": operational_reason,
-        "agent": req.assigned_to or "Unassigned",
+        "agent": assigned_agent,
         "labels": resolved_labels,
         "subject": clean_subj,
         "text": clean_prob,
