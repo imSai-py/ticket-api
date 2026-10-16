@@ -257,6 +257,56 @@ describe("App Triage Component", () => {
 
     expect(confirmSpy).toHaveBeenCalled();
   });
+
+  it("renders auto-extract fields button in live helpdesk card", () => {
+    render(<App />);
+    expect(
+      screen.getByRole("button", { name: /auto-extract fields/i })
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText(/customer name/i)).toBeInTheDocument();
+  });
+
+  it("calls /triage/extract and populates customer fields with auto-populated badges", async () => {
+    const mockExtraction = {
+      customer_name: "Marcus Brody",
+      customer_email: "marcus@example.com",
+      agent: "Sai",
+      subject: "Password Reset and Account Access Issue",
+      operational_reason: "Account authentication lockout",
+      category: "Login",
+      priority: "normal",
+      suggested_reply: "Please follow these password reset steps.",
+      article_ids: ["KB-001"],
+      refund_amount: 0.0,
+      auto_populated_fields: ["customer_name", "customer_email", "subject", "agent", "operational_reason"],
+    };
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => mockExtraction,
+    } as Response);
+
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText(/problem/i), {
+      target: {
+        value: "My name is Marcus Brody. I cannot log in at marcus@example.com.",
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /auto-extract fields/i }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/customer name/i)).toHaveValue("Marcus Brody");
+    });
+
+    expect(screen.getByLabelText(/customer email/i)).toHaveValue("marcus@example.com");
+    expect(screen.getByLabelText(/query subject/i)).toHaveValue(
+      "Password Reset and Account Access Issue"
+    );
+    expect(screen.getByLabelText(/assigned agent/i)).toHaveValue("Sai");
+    expect(screen.getAllByText(/auto-populated/i).length).toBeGreaterThan(0);
+  });
 });
 
 

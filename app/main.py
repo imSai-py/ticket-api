@@ -11,7 +11,16 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi import (
+    FastAPI,
+    File,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -23,6 +32,11 @@ from app.escalation import (
     send_agent_info_request_email,
     send_escalation_alert,
 )
+from app.intake_extraction import (
+    extract_operational_reason_with_fallback,
+    extract_or_generate_subject,
+    perform_intake_extraction,
+)
 from app.retrieval import KBRetriever
 from app.scheduler import start_daily_digest_scheduler
 from app.schemas import (
@@ -31,6 +45,8 @@ from app.schemas import (
     CategoryEnum,
     HelpdeskQueryIngestRequest,
     HelpdeskQueryIngestResponse,
+    IntakeExtractionRequest,
+    IntakeExtractionResponse,
     PriorityEnum,
     SyncTicketRequest,
     TriageRequest,
@@ -1016,13 +1032,37 @@ def ops_approval_action_query(
     )
 
 
+@app.post("/triage/extract", response_model=IntakeExtractionResponse)
+def triage_extract(
+    req: IntakeExtractionRequest,
+    x_agent_name: str | None = Header(None, alias="X-Agent-Name"),
+) -> IntakeExtractionResponse:
+    """Preview and auto-populate intake fields from customer message text."""
+    return perform_intake_extraction(
+        req=req,
+        header_agent=x_agent_name,
+        retriever=retriever,
+    )
+
+
 @app.post("/triage", response_model=TriageResponse)
 def triage(req: TriageRequest) -> TriageResponse:
     matched = retriever.retrieve(req.subject, req.text)
     res = classify_and_reply(req.subject, req.text, matched_articles=matched)
+    if not res.operational_reason:
+        res.operational_reason = extract_operational_reason_with_fallback(
+            req.subject, req.text, category=str(res.category)
+        )
+    if not res.suggested_subject:
+        res.suggested_subject = (
+            req.subject
+            if req.subject.strip()
+            else extract_or_generate_subject(req.text)
+        )
     if str(res.category) == "Billing":
         clean_subj = sanitize_cell(req.subject)
         clean_text = sanitize_cell(req.text)
+        effective_reason = req.reason or res.operational_reason or ""
 
         row = sync_ticket_to_spreadsheet(
             {
@@ -1030,7 +1070,7 @@ def triage(req: TriageRequest) -> TriageResponse:
                 "customer_name": req.customer_name,
                 "category": "Billing",
                 "priority": str(res.priority),
-                "reason": req.reason,
+                "reason": effective_reason,
                 "subject": clean_subj,
                 "text": clean_text,
                 "agent": req.agent,

@@ -95,6 +95,12 @@ class TriageResponse(BaseModel):
     article_ids: list[str] = Field(
         default_factory=list, description="IDs of knowledge base articles used"
     )
+    operational_reason: str | None = Field(
+        default=None, description="Derived operational justification or root cause"
+    )
+    suggested_subject: str | None = Field(
+        default=None, description="Synthesized or extracted concise ticket subject"
+    )
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -256,6 +262,69 @@ class BatchIngestResponse(BaseModel):
     )
     escalations: list[dict[str, Any]] = Field(
         default_factory=list, description="Escalation alerts dispatched"
+    )
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
+class IntakeExtractionRequest(BaseModel):
+    """Payload for automated ticket intake extraction."""
+
+    text: str = Field(
+        ...,
+        min_length=1,
+        max_length=4000,
+        description="Raw customer message or ticket body text",
+    )
+    subject: str | None = Field(
+        default=None, max_length=500, description="Optional incoming subject line"
+    )
+    customer_name: str | None = Field(
+        default=None, max_length=200, description="Optional customer name override"
+    )
+    customer_email: str | None = Field(
+        default=None, max_length=200, description="Optional customer email override"
+    )
+    agent: str | None = Field(
+        default=None, max_length=100, description="Optional handling agent context"
+    )
+
+    model_config = ConfigDict(extra="ignore")
+
+    @field_validator("text")
+    @classmethod
+    def validate_text_not_blank(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Message text cannot be empty or whitespace.")
+        return v.strip()
+
+
+class IntakeExtractionResponse(BaseModel):
+    """Structured extraction output for ticket intake form auto-population."""
+
+    customer_name: str = Field(description="Auto-extracted or fallback customer name")
+    customer_email: str | None = Field(
+        default=None, description="Extracted customer email address if present"
+    )
+    agent: str = Field(description="Auto-filled handling agent from session or rule")
+    subject: str = Field(description="Preserved or synthesized concise subject")
+    operational_reason: str = Field(
+        description="Derived root cause operational reason for tracking"
+    )
+    category: CategoryEnum = Field(description="Classified ticket category")
+    priority: PriorityEnum = Field(description="Classified urgency priority")
+    suggested_reply: str = Field(
+        default="", description="Grounded preliminary customer reply"
+    )
+    article_ids: list[str] = Field(
+        default_factory=list, description="Relevant knowledge base article IDs"
+    )
+    refund_amount: float = Field(
+        default=0.0, description="Extracted monetary refund amount if any"
+    )
+    auto_populated_fields: list[str] = Field(
+        default_factory=list,
+        description="List of fields that were automatically populated",
     )
 
     model_config = ConfigDict(use_enum_values=True)
