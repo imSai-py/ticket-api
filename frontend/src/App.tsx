@@ -89,6 +89,11 @@ export function App() {
   const [ingestError, setIngestError] = useState<string | null>(null);
   const [ingestResult, setIngestResult] = useState<HelpdeskIngestResult | null>(null);
 
+  // Auto-extraction state (Issue #41)
+  const [autoExtractLoading, setAutoExtractLoading] = useState(false);
+  const [autoPopulatedFields, setAutoPopulatedFields] = useState<string[]>([]);
+  const [autoExtractSuccess, setAutoExtractSuccess] = useState<string | null>(null);
+
   // Batch Ingestion state
   const [batchFile, setBatchFile] = useState<File | null>(null);
   const [batchLoading, setBatchLoading] = useState(false);
@@ -172,11 +177,59 @@ export function App() {
       "I noticed two charges of $480.00 on my credit card statement for order #INV-8821. Please issue a refund immediately."
     );
     setIngestCustomerEmail("omar.ali@example.com");
-    setIngestCustomerName("");
+    setIngestCustomerName("Omar Ali");
     setIngestAgent("Riya");
     setIngestLabels("escalated");
     setIngestRefundAmount("");
     setIngestError(null);
+    setAutoPopulatedFields([]);
+    setAutoExtractSuccess(null);
+  };
+
+  const handleAutoExtract = async () => {
+    const rawText = ingestProblem.trim() || ingestSubject.trim();
+    if (!rawText) {
+      setIngestError("Please enter customer problem text before auto-extracting.");
+      return;
+    }
+    setAutoExtractLoading(true);
+    setIngestError(null);
+    setAutoExtractSuccess(null);
+    try {
+      const response = await fetch(`${apiBaseUrl}/triage/extract`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Agent-Name": ingestAgent.trim() || "Sai",
+        },
+        body: JSON.stringify({
+          text: rawText,
+          subject: ingestSubject.trim() || undefined,
+          customer_name: ingestCustomerName.trim() || undefined,
+          customer_email: ingestCustomerEmail.trim() || undefined,
+          agent: ingestAgent.trim() || undefined,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`Extraction failed with HTTP ${response.status}`);
+      }
+      const data = await response.json();
+      if (data.customer_name) setIngestCustomerName(data.customer_name);
+      if (data.customer_email && !ingestCustomerEmail) setIngestCustomerEmail(data.customer_email);
+      if (data.subject && !ingestSubject) setIngestSubject(data.subject);
+      if (data.agent) setIngestAgent(data.agent);
+      if (data.refund_amount > 0 && !ingestRefundAmount) {
+        setIngestRefundAmount(data.refund_amount.toFixed(2));
+      }
+      setAutoPopulatedFields(data.auto_populated_fields || []);
+      setAutoExtractSuccess(
+        `Auto-extracted customer (${data.customer_name}), category (${data.category}), and priority (${data.priority}).`
+      );
+    } catch (err: unknown) {
+      setIngestError(err instanceof Error ? err.message : "Auto-extraction failed.");
+    } finally {
+      setAutoExtractLoading(false);
+    }
   };
 
   const handleIngestSubmit = async (e: React.FormEvent) => {
@@ -359,47 +412,112 @@ TCK-5043,2026-10-05 14:02,resolved,normal,Technical,riya,ava.stone@example.com,,
           <h2 style={{ margin: 0, color: "#1e3a8a", fontSize: "1.25rem" }}>
             ⚡ Live Helpdesk Query Ingest (Auto-Sync to Spreadsheet)
           </h2>
-          <button
-            type="button"
-            onClick={handleLoadSample}
-            style={{
-              background: "#e0e7ff",
-              color: "#3730a3",
-              border: "1px solid #c7d2fe",
-              padding: "0.3rem 0.75rem",
-              borderRadius: "4px",
-              cursor: "pointer",
-              fontSize: "0.85rem",
-              fontWeight: 600,
-            }}
-          >
-            📋 Load Sample Query ($480 Refund)
-          </button>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <button
+              type="button"
+              onClick={handleAutoExtract}
+              disabled={autoExtractLoading}
+              style={{
+                background: "#f0fdf4",
+                color: "#166534",
+                border: "1px solid #bbf7d0",
+                padding: "0.3rem 0.75rem",
+                borderRadius: "4px",
+                cursor: "pointer",
+                fontSize: "0.85rem",
+                fontWeight: 600,
+              }}
+            >
+              {autoExtractLoading ? "✨ Extracting..." : "✨ Auto-Extract Fields"}
+            </button>
+            <button
+              type="button"
+              onClick={handleLoadSample}
+              style={{
+                background: "#e0e7ff",
+                color: "#3730a3",
+                border: "1px solid #c7d2fe",
+                padding: "0.3rem 0.75rem",
+                borderRadius: "4px",
+                cursor: "pointer",
+                fontSize: "0.85rem",
+                fontWeight: 600,
+              }}
+            >
+              📋 Load Sample Query ($480 Refund)
+            </button>
+          </div>
         </div>
         <p style={{ fontSize: "0.9rem", color: "#64748b", margin: "0 0 1rem 0" }}>
           Paste a query from any helpdesk. AI extracts category, priority, and refund amounts, then automatically updates the 8-column tracking spreadsheet.
         </p>
 
+        {autoExtractSuccess && (
+          <div role="status" style={{ marginBottom: "1rem", background: "#eff6ff", border: "1px solid #bfdbfe", color: "#1e40af", padding: "0.5rem 0.75rem", borderRadius: "6px", fontSize: "0.85rem" }}>
+            ✨ {autoExtractSuccess}
+          </div>
+        )}
+
         <form onSubmit={handleIngestSubmit} noValidate>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1rem" }}>
             <div className="form-group">
-              <label htmlFor="ingest-subject">Query Subject</label>
+              <label htmlFor="ingest-name">
+                Customer Name
+                {autoPopulatedFields.includes("customer_name") && (
+                  <span style={{ fontSize: "0.75rem", background: "#dbeafe", color: "#1d4ed8", padding: "1px 6px", borderRadius: "4px", marginLeft: "6px" }}>
+                    Auto-populated
+                  </span>
+                )}
+              </label>
               <input
-                id="ingest-subject"
+                id="ingest-name"
                 type="text"
-                placeholder="e.g. Charged twice on annual renewal"
-                value={ingestSubject}
-                onChange={(e) => setIngestSubject(e.target.value)}
+                placeholder="e.g. Omar Ali (auto-detected)"
+                value={ingestCustomerName}
+                onChange={(e) => {
+                  setIngestCustomerName(e.target.value);
+                  setAutoPopulatedFields((prev) => prev.filter((f) => f !== "customer_name"));
+                }}
               />
             </div>
             <div className="form-group">
-              <label htmlFor="ingest-email">Customer Email</label>
+              <label htmlFor="ingest-email">
+                Customer Email
+                {autoPopulatedFields.includes("customer_email") && (
+                  <span style={{ fontSize: "0.75rem", background: "#dbeafe", color: "#1d4ed8", padding: "1px 6px", borderRadius: "4px", marginLeft: "6px" }}>
+                    Auto-populated
+                  </span>
+                )}
+              </label>
               <input
                 id="ingest-email"
                 type="email"
                 placeholder="e.g. omar.ali@example.com"
                 value={ingestCustomerEmail}
-                onChange={(e) => setIngestCustomerEmail(e.target.value)}
+                onChange={(e) => {
+                  setIngestCustomerEmail(e.target.value);
+                  setAutoPopulatedFields((prev) => prev.filter((f) => f !== "customer_email"));
+                }}
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="ingest-subject">
+                Query Subject
+                {autoPopulatedFields.includes("subject") && (
+                  <span style={{ fontSize: "0.75rem", background: "#dbeafe", color: "#1d4ed8", padding: "1px 6px", borderRadius: "4px", marginLeft: "6px" }}>
+                    Auto-populated
+                  </span>
+                )}
+              </label>
+              <input
+                id="ingest-subject"
+                type="text"
+                placeholder="e.g. Charged twice on annual renewal"
+                value={ingestSubject}
+                onChange={(e) => {
+                  setIngestSubject(e.target.value);
+                  setAutoPopulatedFields((prev) => prev.filter((f) => f !== "subject"));
+                }}
               />
             </div>
           </div>
@@ -417,13 +535,23 @@ TCK-5043,2026-10-05 14:02,resolved,normal,Technical,riya,ava.stone@example.com,,
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1rem" }}>
             <div className="form-group">
-              <label htmlFor="ingest-agent">Assigned Agent</label>
+              <label htmlFor="ingest-agent">
+                Assigned Agent
+                {autoPopulatedFields.includes("agent") && (
+                  <span style={{ fontSize: "0.75rem", background: "#dbeafe", color: "#1d4ed8", padding: "1px 6px", borderRadius: "4px", marginLeft: "6px" }}>
+                    Auto-populated
+                  </span>
+                )}
+              </label>
               <input
                 id="ingest-agent"
                 type="text"
-                placeholder="e.g. Riya"
+                placeholder="e.g. Sai"
                 value={ingestAgent}
-                onChange={(e) => setIngestAgent(e.target.value)}
+                onChange={(e) => {
+                  setIngestAgent(e.target.value);
+                  setAutoPopulatedFields((prev) => prev.filter((f) => f !== "agent"));
+                }}
               />
             </div>
             <div className="form-group">

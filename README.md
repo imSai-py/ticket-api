@@ -165,10 +165,10 @@ Before committing code or deploying, run the unified verification script. It exe
 
 | Test Suite | Scope | Command | Expected Output |
 | :--- | :--- | :--- | :--- |
-| **Backend Tests** | 150 Python unit & integration tests | `pytest` | `150 passed` |
+| **Backend Tests** | 165 Python unit & integration tests | `pytest` | `165 passed` |
 | **Python Linter** | Ruff linting rules | `ruff check .` | `All checks passed!` |
 | **Python Formatter** | Black style conformity | `black --check .` | `All done!` |
-| **Frontend Tests** | 9 Vitest UI component tests | `cd frontend && npm test` | `9 passed` |
+| **Frontend Tests** | 11 Vitest UI component tests | `cd frontend && npm test` | `11 passed` |
 | **Type Check & Build** | TypeScript compiler & Vite build | `cd frontend && npm run build` | `built in ...` |
 
 ---
@@ -350,6 +350,7 @@ The file [`google_apps_script.js`](file:///C:/Users/saila/Documents/BITCOT_TASK/
 | `GET` | `/tickets/{ticket_id}` | Retrieve individual ticket details | `200`, `404` |
 | `GET` | `/summary` | Analytics summary metrics (volumes, resolution times) | `200` |
 | `POST` | `/triage` | AI triage classification and KB article retrieval | `200`, `422` |
+| `POST` | `/triage/extract` | Auto-extract customer identity, subject, agent, and reason | `200`, `422` |
 | `POST` | `/ops/ingest-helpdesk` | Real-time email webhook ingestion & escalation | `200`, `400`, `422` |
 | `GET` | `/ops/ingest-helpdesk` | Status check probe for the ingestion webhook | `200` |
 | `POST` | `/ops/ingest-batch` | Batch CSV or JSON ticket ingestion | `200`, `400`, `423` |
