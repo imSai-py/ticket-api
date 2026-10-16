@@ -235,6 +235,29 @@ describe("App Triage Component", () => {
     expect(screen.getByText("sailakshman212005@gmail.com")).toBeInTheDocument();
     expect(screen.getByText("$250.00")).toBeInTheDocument();
   });
+
+  it("renders clear sheet button and handles clearing tracking records", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [],
+    } as Response);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(<App />);
+
+    const clearBtn = screen.getByTestId("clear-sheet-btn");
+    expect(clearBtn).toBeInTheDocument();
+    expect(clearBtn).toHaveTextContent("Clear Sheet");
+
+    await waitFor(() => {
+      expect(clearBtn).not.toBeDisabled();
+    });
+
+    fireEvent.click(clearBtn);
+
+    expect(confirmSpy).toHaveBeenCalled();
+  });
 });
+
 
 

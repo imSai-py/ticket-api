@@ -36,11 +36,41 @@ CRITICAL RULES:
 
 def get_fallback_triage(
     reason: str = "External AI service unavailable",
+    subject: str = "",
+    text: str = "",
 ) -> TriageResponse:
     """Return safe fallback triage payload when model fails or times out."""
     logger.warning("Using fallback triage response: %s", reason)
+    combined = f"{subject} {text}".lower()
+    if "refund" in combined or "return" in combined:
+        cat = CategoryEnum.REFUNDS
+    elif any(
+        kw in combined
+        for kw in (
+            "billing",
+            "invoice",
+            "charge",
+            "charged",
+            "payment",
+            "subscription",
+            "statement",
+        )
+    ):
+        cat = CategoryEnum.BILLING
+    elif any(
+        kw in combined for kw in ("login", "password", "sign in", "auth", "lockout")
+    ):
+        cat = CategoryEnum.LOGIN
+    elif any(
+        kw in combined
+        for kw in ("shipping", "delivery", "tracking", "package", "transit")
+    ):
+        cat = CategoryEnum.SHIPPING
+    else:
+        cat = CategoryEnum.TECHNICAL
+
     return TriageResponse(
-        category=CategoryEnum.TECHNICAL,
+        category=cat,
         priority=PriorityEnum.NORMAL,
         suggested_reply=(
             "Thank you for contacting customer support. Our automated assistant encountered a temporary service issue, "
@@ -137,4 +167,8 @@ Body: {clean_text}
         return res
     except Exception as exc:  # noqa: BLE001
         logger.error("Failed during model execution in classify_and_reply: %s", exc)
-        return get_fallback_triage(f"Model invocation failed: {exc}")
+        return get_fallback_triage(
+            f"Model invocation failed: {exc}",
+            subject=clean_subject,
+            text=clean_text,
+        )

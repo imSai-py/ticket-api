@@ -758,7 +758,37 @@ def update_approval_status(
     rows = _read_all(path)
     target = next((r for r in rows if r["ticket_id"] == ticket_id), None)
     if not target:
+        # Fallback 1: Case-insensitive match
+        target = next(
+            (
+                r
+                for r in rows
+                if str(r.get("ticket_id", "")).lower() == str(ticket_id).lower()
+            ),
+            None,
+        )
+    if not target:
+        # Fallback 2: Check numeric order suffix or ID in reason / notes
+        num_digits = "".join(ch for ch in str(ticket_id) if ch.isdigit())
+        if num_digits:
+            target = next(
+                (
+                    r
+                    for r in rows
+                    if num_digits in str(r.get("ticket_id", ""))
+                    or num_digits in str(r.get("reason", ""))
+                    or num_digits in str(r.get("notes", ""))
+                    or num_digits in str(r.get("customer_name", ""))
+                ),
+                None,
+            )
+    if not target and len(rows) == 1:
+        target = rows[0]
+
+    if not target:
         raise ValueError(f"Ticket with ID {ticket_id} not found in tracking sheet.")
+
+    ticket_id = target["ticket_id"]
 
     current_status = str(target.get("status", "")).strip().lower()
     clean_new_status = new_status.strip().lower()

@@ -187,6 +187,9 @@ class HelpdeskQueryIngestRequest(BaseModel):
     refund_amount: float | str | None = Field(
         default=None, description="Pre-identified refund amount"
     )
+    category: CategoryEnum | str | None = Field(
+        default=None, description="Optional explicit ticket category"
+    )
 
     model_config = ConfigDict(extra="ignore")
 
@@ -219,6 +222,10 @@ class HelpdeskQueryIngestResponse(BaseModel):
     )
     escalated: bool = Field(
         default=False, description="Whether ticket triggered urgent escalation"
+    )
+    escalation_alert: dict[str, Any] | None = Field(
+        default=None,
+        description="Manager escalation alert details and HTML template for immediate dispatch",
     )
 
     model_config = ConfigDict(use_enum_values=True)

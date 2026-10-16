@@ -124,7 +124,7 @@ export function App() {
     try {
       setTrackingLoading(true);
       setTrackingError(null);
-      const res = await fetch(`${apiBaseUrl}/tickets?size=100`);
+      const res = await fetch(`${apiBaseUrl}/ops/tracking-records`);
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
@@ -133,6 +133,21 @@ export function App() {
       }
     } catch {
       // Non-blocking in offline or unit test environments
+    } finally {
+      setTrackingLoading(false);
+    }
+  };
+
+  const handleClearSheet = async () => {
+    if (!window.confirm("Are you sure you want to erase all tracking sheet records and start fresh?")) {
+      return;
+    }
+    try {
+      setTrackingLoading(true);
+      await fetch(`${apiBaseUrl}/ops/clear-tracking-sheet`, { method: "POST" });
+      await fetchTrackingRecords();
+    } catch {
+      // Non-blocking
     } finally {
       setTrackingLoading(false);
     }
@@ -806,6 +821,25 @@ TCK-5043,2026-10-05 14:02,resolved,normal,Technical,riya,ava.stone@example.com,,
               }}
             >
               {trackingLoading ? "Refreshing..." : "🔄 Refresh Table"}
+            </button>
+            <button
+              type="button"
+              onClick={handleClearSheet}
+              disabled={trackingLoading}
+              aria-label="Clear Sheet"
+              data-testid="clear-sheet-btn"
+              style={{
+                background: "#fef2f2",
+                color: "#991b1b",
+                border: "1px solid #fecaca",
+                borderRadius: "6px",
+                padding: "0.5rem 0.9rem",
+                fontSize: "0.85rem",
+                cursor: trackingLoading ? "not-allowed" : "pointer",
+                fontWeight: 600,
+              }}
+            >
+              🧹 Clear Sheet
             </button>
           </div>
         </div>
