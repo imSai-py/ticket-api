@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 
 export interface TrackingRecord {
   ticket_id: string;
@@ -108,6 +108,15 @@ export function App() {
   const [resubmitLoading, setResubmitLoading] = useState(false);
   const [resubmitError, setResubmitError] = useState<string | null>(null);
   const [resubmitSuccess, setResubmitSuccess] = useState<string | null>(null);
+  const resubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (resubmitTimerRef.current) {
+        clearTimeout(resubmitTimerRef.current);
+      }
+    };
+  }, []);
 
   // Live Tracking Spreadsheet state
   const [trackingRecords, setTrackingRecords] = useState<TrackingRecord[]>([]);
@@ -343,6 +352,9 @@ TCK-5043,2026-10-05 14:02,resolved,normal,Technical,riya,ava.stone@example.com,,
       setResubmitError("Supplemental context / operational justification is required.");
       return;
     }
+    if (resubmitTimerRef.current) {
+      clearTimeout(resubmitTimerRef.current);
+    }
     setResubmitLoading(true);
     setResubmitError(null);
     setResubmitSuccess(null);
@@ -351,6 +363,7 @@ TCK-5043,2026-10-05 14:02,resolved,normal,Technical,riya,ava.stone@example.com,,
         ticket_id: resubmitTicketId.trim(),
         reason: resubmitContext.trim(),
         agent: resubmitAgent.trim() || "Support Agent",
+        is_resubmission: true,
       };
       if (resubmitAmount.trim()) {
         const parsed = parseFloat(resubmitAmount.replace(/[^0-9.]/g, ""));
@@ -374,6 +387,12 @@ TCK-5043,2026-10-05 14:02,resolved,normal,Technical,riya,ava.stone@example.com,,
           `Ticket ${resubmitTicketId} re-submitted successfully and returned to Pending queue for manager approval.`
         );
         fetchTrackingRecords();
+        if (resubmitTimerRef.current) {
+          clearTimeout(resubmitTimerRef.current);
+        }
+        resubmitTimerRef.current = setTimeout(() => {
+          setResubmitSuccess(null);
+        }, 5000);
       }
     } catch (err: unknown) {
       setResubmitError(
@@ -880,12 +899,40 @@ TCK-5043,2026-10-05 14:02,resolved,normal,Technical,riya,ava.stone@example.com,,
               background: "#f0fdf4",
               border: "1px solid #bbf7d0",
               color: "#166534",
-              padding: "1rem",
+              padding: "0.85rem 1rem",
               borderRadius: "6px",
               marginTop: "1rem",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: "1rem",
             }}
           >
-            ✓ {resubmitSuccess}
+            <div>
+              ✓ {resubmitSuccess}
+            </div>
+            <button
+              type="button"
+              aria-label="Close notification"
+              onClick={() => {
+                if (resubmitTimerRef.current) {
+                  clearTimeout(resubmitTimerRef.current);
+                }
+                setResubmitSuccess(null);
+              }}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "#166534",
+                fontWeight: "bold",
+                fontSize: "1.2rem",
+                cursor: "pointer",
+                padding: "0 0.25rem",
+                lineHeight: 1,
+              }}
+            >
+              ✕
+            </button>
           </div>
         )}
       </div>

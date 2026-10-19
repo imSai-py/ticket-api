@@ -131,6 +131,9 @@ class OpsTicketRecord(BaseModel):
     escalated: str = Field(default="False", description="Urgent escalation flag")
     updated_at: str = Field(default="", description="Update timestamp")
     notes: str = Field(default="", description="Verification and audit notes")
+    is_resubmission: bool = Field(
+        default=False, description="Flag indicating if ticket was resubmitted"
+    )
 
     model_config = ConfigDict(extra="ignore")
 
@@ -157,6 +160,10 @@ class SyncTicketRequest(BaseModel):
     labels: str = Field(default="", description="Ticket labels or tags")
     refund_amount: float | str | None = Field(
         default=None, description="Pre-populated refund amount"
+    )
+    is_resubmission: bool = Field(
+        default=False,
+        description="Flag indicating if ticket was explicitly resubmitted",
     )
 
     model_config = ConfigDict(use_enum_values=True)

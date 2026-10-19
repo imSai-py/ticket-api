@@ -31,6 +31,7 @@ from app.escalation import (
     send_agent_action_notification,
     send_agent_info_request_email,
     send_escalation_alert,
+    send_resubmission_notification,
 )
 from app.intake_extraction import (
     extract_operational_reason_with_fallback,
@@ -377,7 +378,15 @@ def summary(source: str | None = Query(None)):
 @app.post("/ops/sync-ticket")
 def ops_sync_ticket(req: SyncTicketRequest) -> dict[str, Any]:
     row = sync_ticket_to_spreadsheet(req.model_dump())
-    alert = send_escalation_alert(row)
+    is_resubmit = bool(row.get("is_resubmission") or req.is_resubmission)
+
+    resubmission_alert = None
+    if is_resubmit:
+        resubmission_alert = send_resubmission_notification(row)
+        alert = resubmission_alert
+    else:
+        alert = send_escalation_alert(row)
+
     existing = next(
         (t for t in TICKETS if t.get("ticket_id") == row["ticket_id"]), None
     )
@@ -412,7 +421,10 @@ def ops_sync_ticket(req: SyncTicketRequest) -> dict[str, Any]:
                 "reason": row["reason"],
             },
         )
-    return {"ticket": row, "escalation_alert": alert}
+    resp: dict[str, Any] = {"ticket": row, "escalation_alert": alert}
+    if is_resubmit and resubmission_alert is not None:
+        resp["resubmission_notification"] = resubmission_alert
+    return resp
 
 
 @app.get("/ops/ingest-helpdesk")

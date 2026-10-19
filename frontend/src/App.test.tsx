@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import App from "./App";
 
@@ -192,6 +192,44 @@ describe("App Triage Component", () => {
     expect(screen.getByTestId("resubmit-success")).toHaveTextContent(
       "Ticket TCK-1001 re-submitted successfully"
     );
+  });
+
+  it("auto-dismisses resubmission confirmation message after 5 seconds", async () => {
+    vi.useFakeTimers();
+    try {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          ticket: { ticket_id: "TCK-1002", status: "Pending" },
+        }),
+      } as Response);
+
+      render(<App />);
+
+      fireEvent.change(screen.getByLabelText(/ticket id for re-submission/i), {
+        target: { value: "TCK-1002" },
+      });
+      fireEvent.change(screen.getByLabelText(/supplemental context/i), {
+        target: { value: "Updated proof of purchase." },
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /re-submit ticket/i }));
+
+      await vi.waitFor(() => {
+        expect(screen.getByTestId("resubmit-success")).toBeInTheDocument();
+      });
+
+      expect(screen.getByTestId("resubmit-success")).toHaveTextContent("Ticket TCK-1002 re-submitted successfully");
+
+      // Advance timers by 5000ms
+      act(() => {
+        vi.advanceTimersByTime(5000);
+      });
+
+      expect(screen.queryByTestId("resubmit-success")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("renders live tracking sheet table and download for Excel button with custom filename", async () => {
