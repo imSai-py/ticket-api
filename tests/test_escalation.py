@@ -295,3 +295,130 @@ def test_send_agent_info_request_email_dispatch(tmp_path, monkeypatch):
     assert "TCK-INFO-001" in notif["subject"]
     assert "Oliver Queen" in notif["subject"]
     assert "bank statement copy" in notif["body"]
+
+
+def test_send_resubmission_notification_format_and_dispatch(monkeypatch):
+    """Verify send_resubmission_notification dispatches email to manager with 3 action buttons and context."""
+    import app.escalation as esc
+    from app.escalation import send_resubmission_notification
+
+    monkeypatch.setenv("ESCALATION_MANAGER_EMAIL", "ops-manager@company.com")
+    monkeypatch.setenv("BASE_URL", "https://api.test.com")
+
+    captured = []
+
+    def fake_dispatch(to_email, subject, body, html_body=None):
+        captured.append(
+            {
+                "to": to_email,
+                "subject": subject,
+                "body": body,
+                "html": html_body,
+            }
+        )
+        return {"sent": True, "mode": "smtp"}
+
+    monkeypatch.setattr(esc, "dispatch_smtp_email", fake_dispatch)
+
+    ticket = {
+        "ticket_id": "TCK-RESUB-77",
+        "customer_name": "Bruce Wayne",
+        "category": "Billing",
+        "refund_amount": "450.00",
+        "assigned_to": "Alfred",
+        "reason": "Verified dual billing on invoice #INV-7711",
+        "notes": "Manager requested more info at 2026-10-15 10:00:00; Agent verified dual charge",
+    }
+
+    alert = send_resubmission_notification(ticket)
+    assert alert["dispatched"] is True
+    assert alert["recipient"] == "ops-manager@company.com"
+    assert "TCK-RESUB-77" in alert["subject"]
+    assert "Bruce Wayne" in alert["subject"]
+    assert "$450.00" in alert["subject"]
+    assert len(captured) == 1
+    call = captured[0]
+    assert call["to"] == "ops-manager@company.com"
+    assert "status=Approved" in call["html"]
+    assert "status=Rejected" in call["html"]
+    assert "status=needs_info" in call["html"]
+    assert "Alfred" in call["html"]
+    assert "Verified dual billing on invoice #INV-7711" in call["html"]
+
+
+def test_ops_sync_ticket_dispatches_notification_to_manager_on_resubmission(
+    tmp_path, monkeypatch
+):
+    """Verify POST /ops/sync-ticket notifies the manager when a ticket is resubmitted."""
+    from fastapi.testclient import TestClient
+
+    import app.escalation as esc
+    from app.main import app
+
+    client = TestClient(app)
+    test_csv = str(tmp_path / "sync_resubmit_dispatch.csv")
+    monkeypatch.setenv("OPS_TRACKING_PATH", test_csv)
+    monkeypatch.setenv("OPS_TRACKING_CSV_PATH", test_csv)
+    monkeypatch.setenv("ESCALATION_MANAGER_EMAIL", "manager-review@example.com")
+
+    captured_emails = []
+
+    def fake_dispatch(to_email, subject, body, html_body=None):
+        captured_emails.append(
+            {
+                "to": to_email,
+                "subject": subject,
+                "body": body,
+                "html": html_body,
+            }
+        )
+        return {"sent": True}
+
+    monkeypatch.setattr(esc, "dispatch_smtp_email", fake_dispatch)
+
+    # 1. Create initial ticket
+    init_res = client.post(
+        "/ops/sync-ticket",
+        json={
+            "ticket_id": "TCK-RESUB-88",
+            "customer_name": "Diana Prince",
+            "customer_email": "diana@themyscira.gov",
+            "category": "Billing",
+            "priority": "normal",
+            "amount": 180.0,
+            "reason": "Subscription duplicate",
+            "agent": "Steve",
+        },
+    )
+    assert init_res.status_code == 200
+    captured_emails.clear()
+
+    # 2. Transition to needs_info
+    info_res = client.get("/ops/approvals/TCK-RESUB-88/action?status=needs_info")
+    assert info_res.status_code == 200
+    captured_emails.clear()
+
+    # 3. Agent resubmits ticket
+    resubmit_res = client.post(
+        "/ops/sync-ticket",
+        json={
+            "ticket_id": "TCK-RESUB-88",
+            "reason": "Confirmed customer was billed twice via Stripe transaction #ch_9921",
+            "agent": "Steve",
+            "amount": 180.0,
+        },
+    )
+    assert resubmit_res.status_code == 200
+    res_data = resubmit_res.json()
+    assert res_data["ticket"]["status"] == "Pending"
+    assert "resubmission_notification" in res_data
+    assert res_data["resubmission_notification"]["dispatched"] is True
+
+    # 4. Verify email was dispatched to manager
+    manager_emails = [
+        c for c in captured_emails if c["to"] == "manager-review@example.com"
+    ]
+    assert len(manager_emails) >= 1
+    m_email = manager_emails[0]
+    assert "TCK-RESUB-88" in m_email["subject"]
+    assert "status=Approved" in m_email["html"]

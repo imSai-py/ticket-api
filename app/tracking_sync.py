@@ -473,8 +473,10 @@ def _resolve_resubmission_status_and_notes(
         if existing_status == "None":
             existing_status = "Pending"
         existing_notes = str(existing_row.get("notes", "") or "")
-
-        is_resubmission = allow_resubmission and _is_needs_info_status(existing_status)
+        is_resubmission = allow_resubmission and (
+            _is_needs_info_status(existing_status)
+            or ticket_payload.get("is_resubmission") is True
+        )
 
         if is_resubmission and (
             not provided_status
@@ -668,6 +670,10 @@ def sync_ticket_to_spreadsheet(
     ).strip()
     formatted_amount = f"{amount_val:.2f}"
     existing_row = rows[existing_idx] if existing_idx is not None else None
+    is_resubmission = bool(
+        ticket.get("is_resubmission")
+        or (existing_row and _is_needs_info_status(str(existing_row.get("status", ""))))
+    )
     if existing_row:
         if (
             (customer_name == "Customer" or not customer_name)
@@ -689,6 +695,19 @@ def sync_ticket_to_spreadsheet(
             not provided_reason or provided_reason == "Operational review"
         ) and existing_row.get("reason"):
             reason_val = existing_row["reason"]
+        if (
+            (
+                not ticket.get("priority")
+                or str(ticket.get("priority", "")).lower()
+                in ("normal", "priorityenum.normal")
+            )
+            and existing_row.get("priority")
+            and str(ticket.get("priority", "")).lower() not in ("urgent", "high", "esc")
+        ):
+            effective_priority = existing_row["priority"]
+            is_urgent = is_ticket_urgent(
+                {"priority": effective_priority, "labels": labels_val}
+            )
         if (
             amount_val == 0.0
             and existing_row.get("amount")
@@ -716,10 +735,12 @@ def sync_ticket_to_spreadsheet(
         "escalated": "True" if is_urgent else "False",
         "updated_at": sanitize_cell(updated_time),
         "notes": sanitize_cell(notes_val),
+        "is_resubmission": is_resubmission,
     }
 
     validated_record = OpsTicketRecord(**new_row)
     validated_row = validated_record.model_dump()
+    validated_row["is_resubmission"] = is_resubmission
 
     _AUDIT_NOTES_CACHE[ticket_id] = notes_val
     _REASON_CACHE[ticket_id] = reason_val

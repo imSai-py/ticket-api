@@ -509,3 +509,146 @@ def send_agent_info_request_email(
         action="Needs Info",
         instructions=instructions,
     )
+
+
+def send_resubmission_notification(
+    ticket: OpsTicketRecord | dict[str, Any],
+    recipient_override: str | None = None,
+    dispatch_smtp: bool = True,
+) -> dict[str, Any]:
+    """Dispatch an alert to the operations manager when a ticket is re-submitted by a support agent."""
+    if isinstance(ticket, OpsTicketRecord):
+        ticket_id = ticket.ticket_id
+        customer = ticket.customer_name
+        category = ticket.category
+        raw_amt = ticket.refund_amount or ticket.amount or 0.0
+        reason = ticket.reason or "Supplemental operational justification provided."
+        agent = ticket.agent or ticket.assigned_to or "Support Agent"
+        notes = ticket.notes or ""
+    else:
+        ticket_id = ticket.get("ticket_id", "Unknown")
+        customer = (
+            ticket.get("customer_name") or ticket.get("customer_email") or "Customer"
+        )
+        category = ticket.get("category", "Billing")
+        raw_amt = ticket.get("refund_amount") or ticket.get("amount") or 0.0
+        reason = (
+            ticket.get("reason") or "Supplemental operational justification provided."
+        )
+        agent = ticket.get("agent") or ticket.get("assigned_to") or "Support Agent"
+        notes = ticket.get("notes") or ""
+
+    try:
+        amount = float(str(raw_amt).replace("$", "").replace(",", "").strip() or 0.0)
+    except ValueError:
+        amount = 0.0
+
+    recipient = (
+        recipient_override
+        or os.getenv("ESCALATION_MANAGER_EMAIL")
+        or os.getenv("MANAGER_EMAIL")
+        or os.getenv("ESCALATION_EMAIL")
+        or "manager@company.com"
+    )
+
+    base_url = (os.getenv("BASE_URL") or "http://localhost:8000").rstrip("/")
+    action_urls = build_approval_action_urls(ticket_id, base_url)
+    approve_url = action_urls.approve_url
+    reject_url = action_urls.reject_url
+    need_info_url = action_urls.need_info_url
+
+    subject = (
+        f"[RESUBMISSION FOR REVIEW] Ticket {ticket_id} - {customer} (${amount:.2f})"
+    )
+    body = (
+        "========================================\n"
+        "TICKET RESUBMITTED FOR MANAGER REVIEW\n"
+        "========================================\n"
+        f"Ticket ID:     {ticket_id}\n"
+        f"Customer:      {customer}\n"
+        f"Category:      {category}\n"
+        f"Amount:        ${amount:.2f}\n"
+        f"Agent:         {agent}\n"
+        f"Reason:        {reason}\n"
+        f"Audit Notes:   {notes}\n\n"
+        "ACTION REQUIRED: Support agent has re-submitted this ticket with updated context. Please review and make an approval decision.\n\n"
+        f"Approve:        {approve_url}\n"
+        f"Reject:         {reject_url}\n"
+        f"Need More Info: {need_info_url}\n"
+    )
+
+    html_body = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }}
+    .card {{ background-color: #ffffff; border-radius: 8px; border: 1px solid #e2e8f0; max-width: 580px; margin: 0 auto; padding: 28px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }}
+    .header {{ border-bottom: 2px solid #0d9488; padding-bottom: 12px; margin-bottom: 18px; }}
+    .title {{ color: #0f766e; font-size: 18px; font-weight: bold; margin: 0; }}
+    .desc {{ color: #475569; font-size: 14px; margin: 0 0 16px 0; }}
+    .table {{ width: 100%; border-collapse: collapse; margin-bottom: 24px; }}
+    .table td {{ padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-size: 14px; }}
+    .label {{ font-weight: 600; color: #64748b; width: 140px; }}
+    .value {{ font-weight: 500; color: #0f172a; }}
+    .amount-highlight {{ color: #0f766e; font-weight: bold; font-size: 16px; }}
+    .actions {{ text-align: center; padding-top: 16px; border-top: 1px solid #e2e8f0; }}
+    .btn {{ display: inline-block; padding: 12px 24px; font-size: 14px; font-weight: bold; text-decoration: none; border-radius: 6px; margin: 0 6px; }}
+    .footer {{ margin-top: 24px; font-size: 12px; color: #94a3b8; text-align: center; }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <h2 class="title">🔄 TICKET RESUBMITTED FOR MANAGER REVIEW</h2>
+    </div>
+    <p class="desc">Support agent <strong>{agent}</strong> has re-submitted ticket <strong>{ticket_id}</strong> with updated operational context and verification details for manager approval.</p>
+    <table class="table">
+      <tr><td class="label">Ticket ID:</td><td class="value"><strong>{ticket_id}</strong></td></tr>
+      <tr><td class="label">Customer:</td><td class="value">{customer}</td></tr>
+      <tr><td class="label">Category:</td><td class="value">{category}</td></tr>
+      <tr><td class="label">Refund Amount:</td><td class="value"><span class="amount-highlight">${amount:.2f}</span></td></tr>
+      <tr><td class="label">Handling Agent:</td><td class="value">{agent}</td></tr>
+      <tr><td class="label">Justification:</td><td class="value">{reason}</td></tr>
+      <tr><td class="label">Audit Trail:</td><td class="value">{notes}</td></tr>
+    </table>
+    <div class="actions">
+      <a href="{approve_url}" class="btn" style="background-color: #28a745; color: #ffffff !important; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; margin-right: 8px;">✅ Approve</a>
+      <a href="{reject_url}" class="btn" style="background-color: #dc3545; color: #ffffff !important; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; margin-right: 8px;">❌ Reject</a>
+      <a href="{need_info_url}" class="btn" style="background-color: #ffc107; color: #212529 !important; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">⚠️ Need More Info</a>
+    </div>
+    <div class="footer">
+      Automated operations alert &bull; Bitcot Operations System
+    </div>
+  </div>
+</body>
+</html>"""
+
+    if dispatch_smtp:
+        logger.warning(
+            "Dispatched resubmission alert for ticket %s to %s",
+            ticket_id,
+            recipient,
+        )
+        smtp_res = dispatch_smtp_email(recipient, subject, body, html_body=html_body)
+    else:
+        smtp_res = {
+            "sent": False,
+            "mode": "suppressed",
+            "message": "Dispatch suppressed.",
+        }
+
+    return {
+        "dispatched": True,
+        "recipient": recipient,
+        "subject": subject,
+        "body": body,
+        "html_body": html_body,
+        "ticket_id": ticket_id,
+        "amount": amount,
+        "alert_type": "TICKET RESUBMITTED FOR MANAGER REVIEW",
+        "smtp": smtp_res,
+        "approve_url": approve_url,
+        "reject_url": reject_url,
+        "need_info_url": need_info_url,
+    }
