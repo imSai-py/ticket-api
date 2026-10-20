@@ -457,7 +457,7 @@ TCK-5043,2026-10-05 14:02,resolved,normal,Technical,riya,ava.stone@example.com,,
         }
         resubmitTimerRef.current = setTimeout(() => {
           setResubmitSuccess(null);
-        }, 10000);
+        }, 5000);
       }
     } catch (err: unknown) {
       setResubmitError(
