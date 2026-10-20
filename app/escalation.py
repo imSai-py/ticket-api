@@ -55,11 +55,27 @@ def dispatch_http_email(
     # 1. Resend API (https://resend.com)
     resend_api_key = os.getenv("RESEND_API_KEY")
     if resend_api_key:
-        resend_from = (
-            os.getenv("RESEND_FROM")
-            or os.getenv("SMTP_FROM")
-            or "onboarding@resend.dev"
-        )
+        raw_resend_from = os.getenv("RESEND_FROM", "").strip()
+        if raw_resend_from:
+            resend_from = raw_resend_from
+        else:
+            smtp_candidate = os.getenv("SMTP_FROM", "").strip()
+            unverified_public_domains = (
+                "gmail.com",
+                "yahoo.com",
+                "hotmail.com",
+                "outlook.com",
+                "icloud.com",
+            )
+            if not smtp_candidate or any(
+                smtp_candidate.lower().endswith(dom)
+                or f"@{dom}" in smtp_candidate.lower()
+                for dom in unverified_public_domains
+            ):
+                resend_from = "Bitcot Operations <onboarding@resend.dev>"
+            else:
+                resend_from = smtp_candidate
+
         payload: dict[str, Any] = {
             "from": resend_from,
             "to": recipient_list,
@@ -93,14 +109,33 @@ def dispatch_http_email(
                 }
             else:
                 err_text = resp.text
+                err_diag = None
+                try:
+                    err_json = resp.json()
+                    err_msg = err_json.get("message", err_text)
+                    if (
+                        "only send testing emails to your own email address"
+                        in err_msg.lower()
+                    ):
+                        err_diag = (
+                            "Resend free tier only permits sending to the account owner email address before domain verification. "
+                            "Ensure ESCALATION_MANAGER_EMAIL matches your Resend signup email."
+                        )
+                    elif "not verified" in err_msg.lower():
+                        err_diag = "Resend sender domain is unverified. Use onboarding@resend.dev as RESEND_FROM or verify your domain."
+                except (ValueError, TypeError, KeyError):
+                    err_msg = err_text
                 logger.error(
                     "Resend HTTP email failed: %s %s", resp.status_code, err_text
                 )
-                return {
+                res_err: dict[str, Any] = {
                     "sent": False,
                     "mode": "resend_error",
-                    "error": f"HTTP {resp.status_code}: {err_text}",
+                    "error": f"HTTP {resp.status_code}: {err_msg}",
                 }
+                if err_diag:
+                    res_err["diagnosis"] = err_diag
+                return res_err
         except (httpx.HTTPError, OSError) as exc:
             logger.error("Resend HTTP request failed: %s", exc)
             return {"sent": False, "mode": "resend_error", "error": str(exc)}
