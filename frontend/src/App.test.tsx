@@ -417,7 +417,48 @@ describe("App Triage Component", () => {
       );
     });
   });
+  it("surfaces email delivery status and diagnosis in resubmission alert", async () => {
+    globalThis.fetch = vi.fn().mockImplementation((url) => {
+      if (typeof url === "string" && url.includes("/ops/sync-ticket")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            ticket: { ticket_id: "TCK-STATUS-1", status: "Pending" },
+            resubmission_notification: {
+              smtp: {
+                sent: true,
+                mode: "resend",
+                recipient: "manager@example.com",
+              },
+            },
+          }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => [],
+      } as Response);
+    });
+
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText(/ticket id for re-submission/i), {
+      target: { value: "TCK-STATUS-1" },
+    });
+    fireEvent.change(screen.getByLabelText(/agent name/i), {
+      target: { value: "Riya" },
+    });
+    fireEvent.change(screen.getByLabelText(/supplemental context/i), {
+      target: { value: "Customer provided proof of transaction." },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /re-submit ticket/i }));
+
+    await waitFor(() => {
+      const alert = screen.getByTestId("resubmit-success");
+      expect(alert).toBeInTheDocument();
+      expect(alert).toHaveTextContent(/RESEND/i);
+      expect(alert).toHaveTextContent(/manager@example.com/i);
+    });
+  });
 });
-
-
-

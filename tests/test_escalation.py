@@ -537,3 +537,144 @@ def test_resubmission_urgent_priority_category_preservation_and_enum_sanitizatio
         assert "categoryenum." not in row.get("category", "").lower()
         assert "PriorityEnum." not in row.get("priority", "")
         assert "priorityenum." not in row.get("priority", "").lower()
+
+
+def test_dispatch_http_email_resend_success(monkeypatch):
+    """Verify HTTP email dispatch via Resend API when RESEND_API_KEY is configured."""
+    import httpx
+
+    from app.escalation import dispatch_smtp_email
+
+    monkeypatch.setenv("ENABLE_LIVE_SMTP_IN_TESTS", "1")
+    monkeypatch.setenv("RESEND_API_KEY", "re_test_key_123")
+    monkeypatch.setenv("RESEND_FROM", "test@resend.dev")
+
+    posted_urls = []
+    posted_payloads = []
+
+    def mock_post(self, url, headers=None, json=None, **kwargs):
+        posted_urls.append(url)
+        posted_payloads.append(json)
+        return httpx.Response(
+            200, json={"id": "msg_resend_abc123"}, request=httpx.Request("POST", url)
+        )
+
+    monkeypatch.setattr(httpx.Client, "post", mock_post)
+
+    res = dispatch_smtp_email(
+        to_email="manager@example.com",
+        subject="[URGENT REVIEW] Test",
+        body="Plain text body",
+        html_body="<p>HTML body</p>",
+    )
+
+    assert res["sent"] is True
+    assert res["mode"] == "resend"
+    assert res["id"] == "msg_resend_abc123"
+    assert "https://api.resend.com/emails" in posted_urls
+    assert posted_payloads[0]["to"] == ["manager@example.com"]
+    assert posted_payloads[0]["from"] == "test@resend.dev"
+
+
+def test_dispatch_http_email_brevo_success(monkeypatch):
+    """Verify HTTP email dispatch via Brevo API when BREVO_API_KEY is configured."""
+    import httpx
+
+    from app.escalation import dispatch_smtp_email
+
+    monkeypatch.setenv("ENABLE_LIVE_SMTP_IN_TESTS", "1")
+    monkeypatch.delenv("RESEND_API_KEY", raising=False)
+    monkeypatch.setenv("BREVO_API_KEY", "xkeysib_test_key_456")
+    monkeypatch.setenv("BREVO_FROM", "alerts@customcompany.com")
+
+    posted_urls = []
+    posted_payloads = []
+
+    def mock_post(self, url, headers=None, json=None, **kwargs):
+        posted_urls.append(url)
+        posted_payloads.append(json)
+        return httpx.Response(
+            201,
+            json={"messageId": "<msg_brevo_xyz@smtp>"},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.Client, "post", mock_post)
+
+    res = dispatch_smtp_email(
+        to_email="manager@example.com",
+        subject="[URGENT REVIEW] Brevo Test",
+        body="Plain text body",
+        html_body="<p>HTML body</p>",
+    )
+
+    assert res["sent"] is True
+    assert res["mode"] == "brevo"
+    assert res["messageId"] == "<msg_brevo_xyz@smtp>"
+    assert "https://api.brevo.com/v3/smtp/email" in posted_urls
+    assert posted_payloads[0]["to"] == [{"email": "manager@example.com"}]
+    assert posted_payloads[0]["sender"]["email"] == "alerts@customcompany.com"
+
+
+def test_dispatch_http_email_webhook_success(monkeypatch):
+    """Verify HTTP email dispatch via generic webhook URL."""
+    import httpx
+
+    from app.escalation import dispatch_smtp_email
+
+    monkeypatch.setenv("ENABLE_LIVE_SMTP_IN_TESTS", "1")
+    monkeypatch.delenv("RESEND_API_KEY", raising=False)
+    monkeypatch.delenv("BREVO_API_KEY", raising=False)
+    monkeypatch.setenv("EMAIL_WEBHOOK_URL", "https://relay.example.com/api/send")
+
+    posted_urls = []
+
+    def mock_post(self, url, json=None, **kwargs):
+        posted_urls.append(url)
+        return httpx.Response(
+            200, json={"status": "queued"}, request=httpx.Request("POST", url)
+        )
+
+    monkeypatch.setattr(httpx.Client, "post", mock_post)
+
+    res = dispatch_smtp_email(
+        to_email="manager@example.com",
+        subject="Webhook Test",
+        body="Plain body",
+    )
+
+    assert res["sent"] is True
+    assert res["mode"] == "webhook"
+    assert "https://relay.example.com/api/send" in posted_urls
+
+
+def test_dispatch_smtp_email_diagnoses_network_unreachable_on_cloud_hosts(monkeypatch):
+    """Verify that when SMTP raises Errno 101 (Network unreachable), diagnosis is returned."""
+    import smtplib
+
+    from app.escalation import dispatch_smtp_email
+
+    monkeypatch.setenv("ENABLE_LIVE_SMTP_IN_TESTS", "1")
+    monkeypatch.delenv("RESEND_API_KEY", raising=False)
+    monkeypatch.delenv("BREVO_API_KEY", raising=False)
+    monkeypatch.delenv("EMAIL_WEBHOOK_URL", raising=False)
+    monkeypatch.setenv("SMTP_HOST", "smtp.gmail.com")
+    monkeypatch.setenv("SMTP_PORT", "587")
+    monkeypatch.setenv("SMTP_USER", "test@gmail.com")
+    monkeypatch.setenv("SMTP_PASSWORD", "secret")
+
+    def mock_smtp(*args, **kwargs):
+        raise OSError(101, "Network is unreachable")
+
+    monkeypatch.setattr(smtplib, "SMTP", mock_smtp)
+
+    res = dispatch_smtp_email(
+        to_email="manager@example.com",
+        subject="Test Alert",
+        body="Body",
+    )
+
+    assert res["sent"] is False
+    assert res["mode"] == "smtp_error"
+    assert "Network is unreachable" in res["error"]
+    assert "Render Free Tier" in res.get("diagnosis", "")

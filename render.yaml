@@ -33,6 +33,16 @@ services:
         sync: false
       - key: SMTP_FROM
         sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM
+        sync: false
+      - key: BREVO_API_KEY
+        sync: false
+      - key: BREVO_FROM
+        sync: false
+      - key: EMAIL_WEBHOOK_URL
+        sync: false
 
   - type: static
     name: ticket-triage-frontend

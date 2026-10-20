@@ -7,6 +7,8 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any
 
+import httpx
+
 from app.schemas import ApprovalActionUrls, ApprovalStatusEnum, OpsTicketRecord
 from app.tracking_sync import is_ticket_urgent
 
@@ -31,13 +33,178 @@ def build_approval_action_urls(
     )
 
 
+def dispatch_http_email(
+    to_email: str,
+    subject: str,
+    body: str,
+    html_body: str | None = None,
+) -> dict[str, Any] | None:
+    """Send email via HTTP APIs (HTTPS Port 443) which bypass cloud firewall port blocks.
+
+    Returns dict if an HTTP provider was configured and attempted, or None if no HTTP provider is set.
+    """
+    recipient_list = [addr.strip() for addr in to_email.split(",") if addr.strip()]
+    if not recipient_list:
+        return {
+            "sent": False,
+            "mode": "error",
+            "message": "No valid recipients provided.",
+        }
+    formatted_to = ", ".join(recipient_list)
+
+    # 1. Resend API (https://resend.com)
+    resend_api_key = os.getenv("RESEND_API_KEY")
+    if resend_api_key:
+        resend_from = (
+            os.getenv("RESEND_FROM")
+            or os.getenv("SMTP_FROM")
+            or "onboarding@resend.dev"
+        )
+        payload: dict[str, Any] = {
+            "from": resend_from,
+            "to": recipient_list,
+            "subject": subject,
+            "text": body,
+        }
+        if html_body:
+            payload["html"] = html_body
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                resp = client.post(
+                    "https://api.resend.com/emails",
+                    headers={
+                        "Authorization": f"Bearer {resend_api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+            if resp.status_code in (200, 201):
+                msg_id = resp.json().get("id", "unknown")
+                logger.info(
+                    "Resend HTTP email successfully delivered to %s (id: %s)",
+                    formatted_to,
+                    msg_id,
+                )
+                return {
+                    "sent": True,
+                    "mode": "resend",
+                    "recipient": formatted_to,
+                    "id": msg_id,
+                }
+            else:
+                err_text = resp.text
+                logger.error(
+                    "Resend HTTP email failed: %s %s", resp.status_code, err_text
+                )
+                return {
+                    "sent": False,
+                    "mode": "resend_error",
+                    "error": f"HTTP {resp.status_code}: {err_text}",
+                }
+        except (httpx.HTTPError, OSError) as exc:
+            logger.error("Resend HTTP request failed: %s", exc)
+            return {"sent": False, "mode": "resend_error", "error": str(exc)}
+
+    # 2. Brevo API (https://brevo.com)
+    brevo_api_key = os.getenv("BREVO_API_KEY")
+    if brevo_api_key:
+        brevo_from = (
+            os.getenv("BREVO_FROM") or os.getenv("SMTP_FROM") or "alerts@company.com"
+        )
+        payload = {
+            "sender": {"email": brevo_from, "name": "Bitcot Operations"},
+            "to": [{"email": addr} for addr in recipient_list],
+            "subject": subject,
+            "textContent": body,
+        }
+        if html_body:
+            payload["htmlContent"] = html_body
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                resp = client.post(
+                    "https://api.brevo.com/v3/smtp/email",
+                    headers={
+                        "api-key": brevo_api_key,
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                    },
+                    json=payload,
+                )
+            if resp.status_code in (200, 201):
+                msg_id = resp.json().get("messageId", "unknown")
+                logger.info(
+                    "Brevo HTTP email successfully delivered to %s (messageId: %s)",
+                    formatted_to,
+                    msg_id,
+                )
+                return {
+                    "sent": True,
+                    "mode": "brevo",
+                    "recipient": formatted_to,
+                    "messageId": msg_id,
+                }
+            else:
+                err_text = resp.text
+                logger.error(
+                    "Brevo HTTP email failed: %s %s", resp.status_code, err_text
+                )
+                return {
+                    "sent": False,
+                    "mode": "brevo_error",
+                    "error": f"HTTP {resp.status_code}: {err_text}",
+                }
+        except (httpx.HTTPError, OSError) as exc:
+            logger.error("Brevo HTTP request failed: %s", exc)
+            return {"sent": False, "mode": "brevo_error", "error": str(exc)}
+
+    # 3. Generic Webhook / Relay URL
+    webhook_url = os.getenv("EMAIL_WEBHOOK_URL")
+    if webhook_url:
+        payload = {
+            "to": recipient_list,
+            "from": os.getenv("SMTP_FROM", "alerts@company.com"),
+            "subject": subject,
+            "body": body,
+            "html_body": html_body,
+        }
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                resp = client.post(webhook_url, json=payload)
+            if resp.status_code in (200, 201, 202, 204):
+                logger.info(
+                    "Webhook email successfully delivered to %s via %s",
+                    formatted_to,
+                    webhook_url,
+                )
+                return {
+                    "sent": True,
+                    "mode": "webhook",
+                    "recipient": formatted_to,
+                }
+            else:
+                return {
+                    "sent": False,
+                    "mode": "webhook_error",
+                    "error": f"HTTP {resp.status_code}: {resp.text}",
+                }
+        except (httpx.HTTPError, OSError) as exc:
+            logger.error("Webhook email request failed: %s", exc)
+            return {"sent": False, "mode": "webhook_error", "error": str(exc)}
+
+    return None
+
+
 def dispatch_smtp_email(
     to_email: str,
     subject: str,
     body: str,
     html_body: str | None = None,
 ) -> dict[str, Any]:
-    """Send real email via SMTP if credentials are configured in environment."""
+    """Send real email via HTTP API (port 443) or SMTP.
+
+    First checks for HTTP providers (Resend, Brevo, Webhook) which bypass cloud host port blocks.
+    Falls back to SMTP if no HTTP providers are active.
+    """
     if "pytest" in sys.modules and not os.getenv("ENABLE_LIVE_SMTP_IN_TESTS"):
         return {
             "sent": False,
@@ -45,6 +212,12 @@ def dispatch_smtp_email(
             "message": "Pytest environment detected. Real SMTP suppressed.",
         }
 
+    # 1. Attempt HTTP email delivery first (bypasses Render/cloud SMTP port blocks)
+    http_result = dispatch_http_email(to_email, subject, body, html_body=html_body)
+    if http_result is not None:
+        return http_result
+
+    # 2. Fall back to standard SMTP
     smtp_host = os.getenv("SMTP_HOST") or os.getenv("SMTP_SERVER")
     smtp_port_raw = os.getenv("SMTP_PORT", "587")
     smtp_user = os.getenv("SMTP_USER") or os.getenv("SMTP_USERNAME")
@@ -96,7 +269,18 @@ def dispatch_smtp_email(
         return {"sent": True, "mode": "smtp", "recipient": formatted_to}
     except (smtplib.SMTPException, OSError) as err:
         logger.error("SMTP delivery failed to %s: %s", to_email, err)
-        return {"sent": False, "mode": "smtp_error", "error": str(err)}
+        err_str = str(err)
+        res: dict[str, Any] = {"sent": False, "mode": "smtp_error", "error": err_str}
+        if (
+            "101" in err_str
+            or "unreachable" in err_str.lower()
+            or "timed out" in err_str.lower()
+        ):
+            res["diagnosis"] = (
+                "Outbound SMTP ports (25, 465, 587) are blocked by hosting firewall (e.g. Render Free Tier). "
+                "Configure an HTTP email provider (RESEND_API_KEY or BREVO_API_KEY) or upgrade to a paid tier."
+            )
+        return res
 
 
 def send_escalation_alert(

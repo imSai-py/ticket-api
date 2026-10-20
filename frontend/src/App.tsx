@@ -414,13 +414,43 @@ TCK-5043,2026-10-05 14:02,resolved,normal,Technical,riya,ava.stone@example.com,,
       const data = (await response.json().catch(() => ({}))) as {
         detail?: string;
         ticket?: { ticket_id?: string; status?: string };
+        resubmission_notification?: {
+          smtp?: {
+            sent?: boolean;
+            mode?: string;
+            recipient?: string;
+            error?: string;
+            diagnosis?: string;
+            message?: string;
+          };
+        };
+        escalation_alert?: {
+          smtp?: {
+            sent?: boolean;
+            mode?: string;
+            recipient?: string;
+            error?: string;
+            diagnosis?: string;
+            message?: string;
+          };
+        };
       };
       if (!response.ok) {
         setResubmitError(data?.detail || "Re-submission failed.");
       } else {
-        setResubmitSuccess(
-          `Ticket ${resubmitTicketId} re-submitted successfully and returned to Pending queue for manager approval.`
-        );
+        const smtpInfo =
+          data.resubmission_notification?.smtp || data.escalation_alert?.smtp;
+        let successMsg = `Ticket ${resubmitTicketId} re-submitted successfully and returned to Pending queue for manager approval.`;
+        if (smtpInfo) {
+          if (smtpInfo.sent) {
+            successMsg += ` Manager review notification email dispatched via ${smtpInfo.mode?.toUpperCase() || "email"} to ${smtpInfo.recipient}.`;
+          } else if (smtpInfo.diagnosis) {
+            successMsg += ` (Email notice: ${smtpInfo.diagnosis})`;
+          } else if (smtpInfo.error) {
+            successMsg += ` (Email notice: ${smtpInfo.error})`;
+          }
+        }
+        setResubmitSuccess(successMsg);
         fetchTrackingRecords();
         if (resubmitTimerRef.current) {
           clearTimeout(resubmitTimerRef.current);
