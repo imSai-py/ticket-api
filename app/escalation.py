@@ -101,7 +101,7 @@ def dispatch_http_email(
                     "mode": "resend_error",
                     "error": f"HTTP {resp.status_code}: {err_text}",
                 }
-        except Exception as exc:
+        except (httpx.HTTPError, OSError) as exc:
             logger.error("Resend HTTP request failed: %s", exc)
             return {"sent": False, "mode": "resend_error", "error": str(exc)}
 
@@ -109,9 +109,7 @@ def dispatch_http_email(
     brevo_api_key = os.getenv("BREVO_API_KEY")
     if brevo_api_key:
         brevo_from = (
-            os.getenv("BREVO_FROM")
-            or os.getenv("SMTP_FROM")
-            or "alerts@company.com"
+            os.getenv("BREVO_FROM") or os.getenv("SMTP_FROM") or "alerts@company.com"
         )
         payload = {
             "sender": {"email": brevo_from, "name": "Bitcot Operations"},
@@ -155,7 +153,7 @@ def dispatch_http_email(
                     "mode": "brevo_error",
                     "error": f"HTTP {resp.status_code}: {err_text}",
                 }
-        except Exception as exc:
+        except (httpx.HTTPError, OSError) as exc:
             logger.error("Brevo HTTP request failed: %s", exc)
             return {"sent": False, "mode": "brevo_error", "error": str(exc)}
 
@@ -189,7 +187,7 @@ def dispatch_http_email(
                     "mode": "webhook_error",
                     "error": f"HTTP {resp.status_code}: {resp.text}",
                 }
-        except Exception as exc:
+        except (httpx.HTTPError, OSError) as exc:
             logger.error("Webhook email request failed: %s", exc)
             return {"sent": False, "mode": "webhook_error", "error": str(exc)}
 
@@ -215,9 +213,7 @@ def dispatch_smtp_email(
         }
 
     # 1. Attempt HTTP email delivery first (bypasses Render/cloud SMTP port blocks)
-    http_result = dispatch_http_email(
-        to_email, subject, body, html_body=html_body
-    )
+    http_result = dispatch_http_email(to_email, subject, body, html_body=html_body)
     if http_result is not None:
         return http_result
 
@@ -275,7 +271,11 @@ def dispatch_smtp_email(
         logger.error("SMTP delivery failed to %s: %s", to_email, err)
         err_str = str(err)
         res: dict[str, Any] = {"sent": False, "mode": "smtp_error", "error": err_str}
-        if "101" in err_str or "unreachable" in err_str.lower() or "timed out" in err_str.lower():
+        if (
+            "101" in err_str
+            or "unreachable" in err_str.lower()
+            or "timed out" in err_str.lower()
+        ):
             res["diagnosis"] = (
                 "Outbound SMTP ports (25, 465, 587) are blocked by hosting firewall (e.g. Render Free Tier). "
                 "Configure an HTTP email provider (RESEND_API_KEY or BREVO_API_KEY) or upgrade to a paid tier."
