@@ -377,7 +377,7 @@ def summary(source: str | None = Query(None)):
 
 @app.post("/ops/sync-ticket")
 def ops_sync_ticket(req: SyncTicketRequest) -> dict[str, Any]:
-    row = sync_ticket_to_spreadsheet(req.model_dump())
+    row = sync_ticket_to_spreadsheet(req.model_dump(mode="json"))
     is_resubmit = bool(row.get("is_resubmission") or req.is_resubmission)
 
     resubmission_alert = None

@@ -345,6 +345,78 @@ describe("App Triage Component", () => {
     expect(screen.getByLabelText(/assigned agent/i)).toHaveValue("Sai");
     expect(screen.getAllByText(/auto-populated/i).length).toBeGreaterThan(0);
   });
+
+  it("renders category dropdown in re-submission form and auto-populates fields on ticket id change", async () => {
+    const mockTickets = [
+      {
+        ticket_id: "TCK-LOOKUP-1",
+        created_at: "16/10/2026",
+        status: "needs_info",
+        priority: "PriorityEnum.NORMAL",
+        category: "CategoryEnum.REFUNDS",
+        assigned_to: "Pepper",
+        customer_email: "tony@stark.com",
+        labels: "",
+        refund_amount: "320.00",
+      },
+    ];
+
+    globalThis.fetch = vi.fn().mockImplementation((url) => {
+      if (typeof url === "string" && url.includes("/ops/tracking-records")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => mockTickets,
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ status: "success", ticket: { ticket_id: "TCK-LOOKUP-1", status: "Pending" } }),
+      } as Response);
+    });
+
+    render(<App />);
+
+    // Check category dropdown exists with default option
+    const categorySelect = screen.getByLabelText(/category for re-submission/i);
+    expect(categorySelect).toBeInTheDocument();
+    expect(categorySelect).toHaveValue("");
+
+    // Wait for tracking table to load mock ticket
+    await waitFor(() => {
+      expect(screen.getByText("TCK-LOOKUP-1")).toBeInTheDocument();
+    });
+
+    // Verify corrupted enum prefixes are sanitized in table
+    expect(screen.getByText("REFUNDS")).toBeInTheDocument();
+    expect(screen.getByText("NORMAL")).toBeInTheDocument();
+
+    // Type TCK-LOOKUP-1 into Ticket ID input
+    const ticketIdInput = screen.getByLabelText(/ticket id for re-submission/i);
+    fireEvent.change(ticketIdInput, { target: { value: "TCK-LOOKUP-1" } });
+
+    // Verify auto-population of amount, agent, and category
+    expect(screen.getByLabelText(/refund amount/i)).toHaveValue("320.00");
+    expect(screen.getByLabelText(/agent name/i)).toHaveValue("Pepper");
+    expect(categorySelect).toHaveValue("Refunds");
+
+    // Change category to Technical and submit
+    fireEvent.change(categorySelect, { target: { value: "Technical" } });
+    fireEvent.change(screen.getByLabelText(/supplemental context/i), {
+      target: { value: "Updated context note" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /re-submit ticket/i }));
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/ops/sync-ticket"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"category":"Technical"'),
+        })
+      );
+    });
+  });
 });
 
 

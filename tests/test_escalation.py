@@ -422,3 +422,118 @@ def test_ops_sync_ticket_dispatches_notification_to_manager_on_resubmission(
     m_email = manager_emails[0]
     assert "TCK-RESUB-88" in m_email["subject"]
     assert "status=Approved" in m_email["html"]
+
+
+def test_resubmission_urgent_priority_category_preservation_and_enum_sanitization(
+    tmp_path, monkeypatch
+):
+    """Verify that re-submitting a ticket elevates priority to 'urgent', preserves original
+    category unless overridden, and strictly sanitizes any enum representations.
+    """
+    from fastapi.testclient import TestClient
+
+    import app.escalation as esc
+    from app.main import app
+    from app.tracking_sync import _read_all
+
+    client = TestClient(app)
+    test_csv = str(tmp_path / "resubmit_urgent_test.csv")
+    monkeypatch.setenv("OPS_TRACKING_PATH", test_csv)
+    monkeypatch.setenv("OPS_TRACKING_CSV_PATH", test_csv)
+    monkeypatch.setenv("ESCALATION_MANAGER_EMAIL", "manager-urgent@example.com")
+
+    captured_emails = []
+
+    def fake_dispatch(to_email, subject, body, html_body=None):
+        captured_emails.append(
+            {
+                "to": to_email,
+                "subject": subject,
+                "body": body,
+                "html": html_body,
+            }
+        )
+        return {"sent": True}
+
+    monkeypatch.setattr(esc, "dispatch_smtp_email", fake_dispatch)
+
+    # 1. Create an initial ticket with category 'Refunds' and priority 'normal'
+    init_res = client.post(
+        "/ops/sync-ticket",
+        json={
+            "ticket_id": "TCK-URG-100",
+            "customer_name": "Tony Stark",
+            "customer_email": "tony@stark.com",
+            "category": "Refunds",
+            "priority": "normal",
+            "amount": 250.0,
+            "reason": "Damaged parts returned",
+            "agent": "Pepper",
+        },
+    )
+    assert init_res.status_code == 200
+    init_data = init_res.json()
+    assert init_data["ticket"]["category"] == "Refunds"
+    assert init_data["ticket"]["priority"] == "normal"
+    assert "Enum" not in init_data["ticket"]["category"]
+    assert "enum" not in init_data["ticket"]["priority"].lower().replace(
+        "urgent", ""
+    ).replace("normal", "")
+
+    # 2. Transition ticket to needs_info
+    client.get("/ops/approvals/TCK-URG-100/action?status=needs_info")
+    captured_emails.clear()
+
+    # 3. Agent re-submits ticket with supplemental context without specifying category
+    resubmit_res = client.post(
+        "/ops/sync-ticket",
+        json={
+            "ticket_id": "TCK-URG-100",
+            "reason": "Verified carrier return tracking #STARK-9918 delivered to warehouse.",
+            "agent": "Pepper",
+            "amount": 250.0,
+            "is_resubmission": True,
+        },
+    )
+    assert resubmit_res.status_code == 200
+    res_data = resubmit_res.json()
+    ticket_row = res_data["ticket"]
+
+    # Priority MUST be elevated to 'urgent' and marked escalated
+    assert ticket_row["priority"] == "urgent"
+    assert ticket_row["escalated"] == "True"
+
+    # Category MUST preserve 'Refunds' (not overwritten with 'Billing' or 'CategoryEnum.BILLING')
+    assert ticket_row["category"] == "Refunds"
+
+    # Manager notification MUST contain '[URGENT RESUBMISSION FOR REVIEW]' and urgent priority
+    assert len(captured_emails) >= 1
+    manager_email = captured_emails[-1]
+    assert "[URGENT RESUBMISSION FOR REVIEW]" in manager_email["subject"]
+    assert "URGENT" in manager_email["body"].upper()
+
+    # 4. Agent re-submits with an explicit category change to 'Technical'
+    captured_emails.clear()
+    resubmit_tech = client.post(
+        "/ops/sync-ticket",
+        json={
+            "ticket_id": "TCK-URG-100",
+            "category": "Technical",
+            "reason": "Escalating hardware diagnostics to engineering.",
+            "agent": "Pepper",
+            "amount": 250.0,
+            "is_resubmission": True,
+        },
+    )
+    assert resubmit_tech.status_code == 200
+    tech_row = resubmit_tech.json()["ticket"]
+    assert tech_row["category"] == "Technical"
+    assert tech_row["priority"] == "urgent"
+
+    # 5. Verify CSV records on disk never contain Enum class names
+    rows = _read_all(test_csv)
+    for row in rows:
+        assert "CategoryEnum." not in row.get("category", "")
+        assert "categoryenum." not in row.get("category", "").lower()
+        assert "PriorityEnum." not in row.get("priority", "")
+        assert "priorityenum." not in row.get("priority", "").lower()

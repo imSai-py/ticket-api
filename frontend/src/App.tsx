@@ -102,6 +102,7 @@ export function App() {
 
   // Support Agent Re-submission state
   const [resubmitTicketId, setResubmitTicketId] = useState("");
+  const [resubmitCategory, setResubmitCategory] = useState("");
   const [resubmitContext, setResubmitContext] = useState("");
   const [resubmitAmount, setResubmitAmount] = useState("");
   const [resubmitAgent, setResubmitAgent] = useState("");
@@ -109,6 +110,37 @@ export function App() {
   const [resubmitError, setResubmitError] = useState<string | null>(null);
   const [resubmitSuccess, setResubmitSuccess] = useState<string | null>(null);
   const resubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleResubmitTicketIdChange = (id: string) => {
+    setResubmitTicketId(id);
+    const trimmed = id.trim();
+    if (!trimmed) return;
+    const match = trackingRecords.find(
+      (r) => r.ticket_id.trim().toLowerCase() === trimmed.toLowerCase()
+    );
+    if (match) {
+      if (match.refund_amount && match.refund_amount !== "0.00") {
+        setResubmitAmount(match.refund_amount);
+      }
+      if (match.category) {
+        const rawCat = match.category.replace(/^categoryenum\./i, "").trim().toLowerCase();
+        const catMap: Record<string, string> = {
+          billing: "Billing",
+          refunds: "Refunds",
+          refund: "Refunds",
+          technical: "Technical",
+          login: "Login",
+          shipping: "Shipping",
+          account: "Account",
+        };
+        const titleCat = catMap[rawCat] || (rawCat ? rawCat.charAt(0).toUpperCase() + rawCat.slice(1) : "");
+        setResubmitCategory(titleCat);
+      }
+      if (match.assigned_to) {
+        setResubmitAgent(match.assigned_to);
+      }
+    }
+  };
 
   useEffect(() => {
     return () => {
@@ -365,6 +397,9 @@ TCK-5043,2026-10-05 14:02,resolved,normal,Technical,riya,ava.stone@example.com,,
         agent: resubmitAgent.trim() || "Support Agent",
         is_resubmission: true,
       };
+      if (resubmitCategory.trim()) {
+        payload.category = resubmitCategory.trim();
+      }
       if (resubmitAmount.trim()) {
         const parsed = parseFloat(resubmitAmount.replace(/[^0-9.]/g, ""));
         if (!isNaN(parsed)) {
@@ -836,7 +871,7 @@ TCK-5043,2026-10-05 14:02,resolved,normal,Technical,riya,ava.stone@example.com,,
                 aria-label="Ticket ID for Re-submission"
                 placeholder="e.g. TCK-1001"
                 value={resubmitTicketId}
-                onChange={(e) => setResubmitTicketId(e.target.value)}
+                onChange={(e) => handleResubmitTicketIdChange(e.target.value)}
               />
             </div>
 
@@ -853,16 +888,45 @@ TCK-5043,2026-10-05 14:02,resolved,normal,Technical,riya,ava.stone@example.com,,
             </div>
           </div>
 
-          <div className="form-group">
-            <label htmlFor="resubmit-amount">Refund Amount USD (Optional)</label>
-            <input
-              id="resubmit-amount"
-              type="text"
-              aria-label="Refund Amount"
-              placeholder="e.g. 150.00"
-              value={resubmitAmount}
-              onChange={(e) => setResubmitAmount(e.target.value)}
-            />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+            <div className="form-group">
+              <label htmlFor="resubmit-amount">Refund Amount USD (Optional)</label>
+              <input
+                id="resubmit-amount"
+                type="text"
+                aria-label="Refund Amount"
+                placeholder="e.g. 150.00"
+                value={resubmitAmount}
+                onChange={(e) => setResubmitAmount(e.target.value)}
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="resubmit-category">Category (Optional)</label>
+              <select
+                id="resubmit-category"
+                aria-label="Category for Re-submission"
+                value={resubmitCategory}
+                onChange={(e) => setResubmitCategory(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "0.6rem 0.8rem",
+                  borderRadius: "6px",
+                  border: "1px solid #cbd5e1",
+                  fontSize: "0.95rem",
+                  background: "#fff",
+                  color: "#0f172a",
+                }}
+              >
+                <option value="">Preserve Current Category</option>
+                <option value="Billing">Billing</option>
+                <option value="Refunds">Refunds</option>
+                <option value="Technical">Technical</option>
+                <option value="Login">Login</option>
+                <option value="Shipping">Shipping</option>
+                <option value="Account">Account</option>
+              </select>
+            </div>
           </div>
 
           <div className="form-group">
@@ -1088,7 +1152,8 @@ TCK-5043,2026-10-05 14:02,resolved,normal,Technical,riya,ava.stone@example.com,,
               ) : (
                 filteredTrackingRecords.map((r) => {
                   const amt = parseFloat(r.refund_amount || "0");
-                  const pLower = (r.priority || "normal").toLowerCase();
+                  const pClean = (r.priority || "normal").replace(/^priorityenum\./i, "").toLowerCase();
+                  const cClean = (r.category || "General").replace(/^categoryenum\./i, "");
                   return (
                     <tr key={r.ticket_id} style={{ borderBottom: "1px solid #f1f5f9" }}>
                       <td style={{ padding: "0.5rem 0.6rem", fontWeight: 700, color: "#0f172a" }}>
@@ -1122,12 +1187,12 @@ TCK-5043,2026-10-05 14:02,resolved,normal,Technical,riya,ava.stone@example.com,,
                         </span>
                       </td>
                       <td style={{ padding: "0.5rem 0.6rem" }}>
-                        <span className={`badge badge-priority-${pLower}`}>
-                          {pLower.toUpperCase()}
+                        <span className={`badge badge-priority-${pClean}`}>
+                          {pClean.toUpperCase()}
                         </span>
                       </td>
                       <td style={{ padding: "0.5rem 0.6rem" }}>
-                        <span className="badge badge-category">{r.category || "General"}</span>
+                        <span className="badge badge-category">{cClean}</span>
                       </td>
                       <td
                         style={{

@@ -201,6 +201,39 @@ def _ensure_file_exists(csv_path: str) -> None:
             ) from err
 
 
+def normalize_priority_str(val: Any) -> str:
+    """Normalize priority value to clean lowercase string ('urgent', 'high', 'normal', 'low')."""
+    if val is None:
+        return "normal"
+    raw = getattr(val, "value", str(val)).strip()
+    raw = raw.replace("PriorityEnum.", "").replace("priorityenum.", "").strip()
+    raw_lower = raw.lower()
+    if raw_lower in ("urgent", "high", "normal", "low"):
+        return raw_lower
+    return raw_lower or "normal"
+
+
+def normalize_category_str(val: Any) -> str:
+    """Normalize category value to clean standard string ('Billing', 'Refunds', etc.)."""
+    if val is None:
+        return "Billing"
+    raw = getattr(val, "value", str(val)).strip()
+    raw = raw.replace("CategoryEnum.", "").replace("categoryenum.", "").strip()
+    if not raw:
+        return "Billing"
+    canonical = {
+        "billing": "Billing",
+        "refunds": "Refunds",
+        "refund": "Refunds",
+        "technical": "Technical",
+        "tech": "Technical",
+        "login": "Login",
+        "shipping": "Shipping",
+        "account": "Account",
+    }
+    return canonical.get(raw.lower(), raw.capitalize())
+
+
 def _read_all(
     csv_path: str, max_retries: int = 3, retry_delay: float = 0.05
 ) -> list[dict[str, Any]]:
@@ -212,6 +245,12 @@ def _read_all(
                 reader = csv.DictReader(f)
                 rows = []
                 for r in reader:
+                    # Sanitize any legacy enum prefixes on load
+                    if r.get("priority"):
+                        r["priority"] = normalize_priority_str(r["priority"])
+                    if r.get("category"):
+                        r["category"] = normalize_category_str(r["category"])
+
                     # Guarantee bidirectional alias availability across formats
                     if "assigned_to" in r and not r.get("agent"):
                         r["agent"] = r["assigned_to"]
@@ -674,6 +713,33 @@ def sync_ticket_to_spreadsheet(
         ticket.get("is_resubmission")
         or (existing_row and _is_needs_info_status(str(existing_row.get("status", ""))))
     )
+
+    # 1. Resolve Category: explicit override > existing row > default "Billing"
+    provided_cat = ticket.get("category")
+    if provided_cat is not None and str(provided_cat).strip() != "":
+        category_val = normalize_category_str(provided_cat)
+    elif existing_row and existing_row.get("category"):
+        category_val = normalize_category_str(existing_row["category"])
+    else:
+        category_val = "Billing"
+
+    # 2. Resolve Priority and Escalation:
+    if is_resubmission:
+        effective_priority = "urgent"
+        is_urgent = True
+        if "escalated" not in labels_val.lower():
+            labels_val = (
+                f"{labels_val}, escalated".strip(", ") if labels_val else "escalated"
+            )
+    elif existing_row and existing_row.get("priority") and not ticket.get("priority"):
+        effective_priority = normalize_priority_str(existing_row["priority"])
+        is_urgent = is_ticket_urgent(
+            {"priority": effective_priority, "labels": labels_val}
+        )
+    else:
+        effective_priority, is_urgent = resolve_ticket_priority_and_escalation(ticket)
+        effective_priority = normalize_priority_str(effective_priority)
+
     if existing_row:
         if (
             (customer_name == "Customer" or not customer_name)
@@ -685,10 +751,6 @@ def sync_ticket_to_spreadsheet(
             customer_email_val = existing_row["customer_email"]
         if not assigned_to_val and existing_row.get("assigned_to"):
             assigned_to_val = existing_row["assigned_to"]
-        if not ticket.get("category") and existing_row.get("category"):
-            category_val = existing_row["category"]
-        else:
-            category_val = ticket.get("category", "Billing")
         if not labels_val and existing_row.get("labels"):
             labels_val = existing_row["labels"]
         if (
@@ -696,34 +758,19 @@ def sync_ticket_to_spreadsheet(
         ) and existing_row.get("reason"):
             reason_val = existing_row["reason"]
         if (
-            (
-                not ticket.get("priority")
-                or str(ticket.get("priority", "")).lower()
-                in ("normal", "priorityenum.normal")
-            )
-            and existing_row.get("priority")
-            and str(ticket.get("priority", "")).lower() not in ("urgent", "high", "esc")
-        ):
-            effective_priority = existing_row["priority"]
-            is_urgent = is_ticket_urgent(
-                {"priority": effective_priority, "labels": labels_val}
-            )
-        if (
             amount_val == 0.0
             and existing_row.get("amount")
             and existing_row["amount"] != "0.00"
         ):
             amount_val = normalize_currency_amount(existing_row["amount"])
             formatted_amount = f"{amount_val:.2f}"
-    else:
-        category_val = ticket.get("category", "Billing")
 
     new_row: dict[str, Any] = {
         "ticket_id": sanitize_cell(ticket_id),
         "created_at": sanitize_cell(created_time),
         "status": sanitize_cell(status_val),
-        "priority": sanitize_cell(effective_priority),
-        "category": sanitize_cell(category_val),
+        "priority": sanitize_cell(normalize_priority_str(effective_priority)),
+        "category": sanitize_cell(normalize_category_str(category_val)),
         "assigned_to": sanitize_cell(assigned_to_val),
         "customer_email": sanitize_cell(customer_email_val),
         "labels": sanitize_cell(labels_val),

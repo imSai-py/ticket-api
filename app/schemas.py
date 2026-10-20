@@ -137,17 +137,35 @@ class OpsTicketRecord(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
+    @field_validator("priority", mode="before")
+    @classmethod
+    def clean_priority(cls, v: Any) -> str:
+        if v is None:
+            return "normal"
+        s = getattr(v, "value", str(v)).strip()
+        s = s.replace("PriorityEnum.", "").replace("priorityenum.", "").strip()
+        return s.lower() or "normal"
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def clean_category(cls, v: Any) -> str:
+        if v is None:
+            return "Billing"
+        s = getattr(v, "value", str(v)).strip()
+        s = s.replace("CategoryEnum.", "").replace("categoryenum.", "").strip()
+        return s or "Billing"
+
 
 class SyncTicketRequest(BaseModel):
     """Request model for syncing ticket directly to tracking spreadsheet."""
 
     ticket_id: str = Field(default="", description="Optional ticket ID")
     customer_name: str = Field(default="Customer", description="Customer full name")
-    category: CategoryEnum = Field(
-        default=CategoryEnum.BILLING, description="Ticket category"
+    category: CategoryEnum | str | None = Field(
+        default=None, description="Optional ticket category"
     )
-    priority: PriorityEnum = Field(
-        default=PriorityEnum.NORMAL, description="Ticket priority"
+    priority: PriorityEnum | str | None = Field(
+        default=None, description="Optional ticket priority"
     )
     amount: float | None = Field(
         default=None, ge=0.0, description="Monetary amount if known"
@@ -167,6 +185,37 @@ class SyncTicketRequest(BaseModel):
     )
 
     model_config = ConfigDict(use_enum_values=True)
+
+    @field_validator("priority", mode="before")
+    @classmethod
+    def clean_req_priority(cls, v: Any) -> str | None:
+        if v is None or v == "":
+            return None
+        s = getattr(v, "value", str(v)).strip()
+        s = s.replace("PriorityEnum.", "").replace("priorityenum.", "").strip()
+        s_lower = s.lower()
+        if s_lower not in ("urgent", "high", "normal", "low"):
+            raise ValueError(f"Invalid priority: {v}")
+        return s_lower
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def clean_req_category(cls, v: Any) -> str | None:
+        if v is None or v == "":
+            return None
+        s = getattr(v, "value", str(v)).strip()
+        s = s.replace("CategoryEnum.", "").replace("categoryenum.", "").strip()
+        valid_cats = {
+            "billing": "Billing",
+            "refunds": "Refunds",
+            "login": "Login",
+            "shipping": "Shipping",
+            "technical": "Technical",
+            "account": "Account",
+        }
+        if s.lower() not in valid_cats:
+            raise ValueError(f"Invalid category: {v}")
+        return valid_cats[s.lower()]
 
     @field_validator("customer_name")
     @classmethod

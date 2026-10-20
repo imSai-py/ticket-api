@@ -557,16 +557,15 @@ def send_resubmission_notification(
     reject_url = action_urls.reject_url
     need_info_url = action_urls.need_info_url
 
-    subject = (
-        f"[RESUBMISSION FOR REVIEW] Ticket {ticket_id} - {customer} (${amount:.2f})"
-    )
+    subject = f"[URGENT RESUBMISSION FOR REVIEW] Ticket {ticket_id} - {customer} (${amount:.2f})"
     body = (
         "========================================\n"
-        "TICKET RESUBMITTED FOR MANAGER REVIEW\n"
+        "URGENT TICKET RESUBMITTED FOR MANAGER REVIEW\n"
         "========================================\n"
         f"Ticket ID:     {ticket_id}\n"
         f"Customer:      {customer}\n"
         f"Category:      {category}\n"
+        f"Priority:      URGENT\n"
         f"Amount:        ${amount:.2f}\n"
         f"Agent:         {agent}\n"
         f"Reason:        {reason}\n"
@@ -584,8 +583,8 @@ def send_resubmission_notification(
   <style>
     body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }}
     .card {{ background-color: #ffffff; border-radius: 8px; border: 1px solid #e2e8f0; max-width: 580px; margin: 0 auto; padding: 28px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }}
-    .header {{ border-bottom: 2px solid #0d9488; padding-bottom: 12px; margin-bottom: 18px; }}
-    .title {{ color: #0f766e; font-size: 18px; font-weight: bold; margin: 0; }}
+    .header {{ border-bottom: 2px solid #dc2626; padding-bottom: 12px; margin-bottom: 18px; }}
+    .title {{ color: #b91c1c; font-size: 18px; font-weight: bold; margin: 0; }}
     .desc {{ color: #475569; font-size: 14px; margin: 0 0 16px 0; }}
     .table {{ width: 100%; border-collapse: collapse; margin-bottom: 24px; }}
     .table td {{ padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-size: 14px; }}
@@ -600,12 +599,13 @@ def send_resubmission_notification(
 <body>
   <div class="card">
     <div class="header">
-      <h2 class="title">🔄 TICKET RESUBMITTED FOR MANAGER REVIEW</h2>
+      <h2 class="title">🚨 URGENT TICKET RESUBMITTED FOR MANAGER REVIEW</h2>
     </div>
-    <p class="desc">Support agent <strong>{agent}</strong> has re-submitted ticket <strong>{ticket_id}</strong> with updated operational context and verification details for manager approval.</p>
+    <p class="desc">Support agent <strong>{agent}</strong> has re-submitted ticket <strong>{ticket_id}</strong> with updated operational context and verification details for urgent manager review.</p>
     <table class="table">
       <tr><td class="label">Ticket ID:</td><td class="value"><strong>{ticket_id}</strong></td></tr>
       <tr><td class="label">Customer:</td><td class="value">{customer}</td></tr>
+      <tr><td class="label">Priority:</td><td class="value"><span style="color: #dc2626; font-weight: bold; text-transform: uppercase;">urgent</span></td></tr>
       <tr><td class="label">Category:</td><td class="value">{category}</td></tr>
       <tr><td class="label">Refund Amount:</td><td class="value"><span class="amount-highlight">${amount:.2f}</span></td></tr>
       <tr><td class="label">Handling Agent:</td><td class="value">{agent}</td></tr>
