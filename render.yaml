@@ -21,6 +21,18 @@ services:
         sync: false
       - key: AGENT_NOTIFICATIONS_EMAIL
         sync: false
+      - key: MANAGER_EMAIL
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: 587
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false
 
   - type: static
     name: ticket-triage-frontend
