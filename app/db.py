@@ -29,6 +29,14 @@ except (ImportError, AttributeError, OSError) as _dns_err:
     logger.debug("Could not configure fallback DNS nameservers: %s", _dns_err)
 
 try:
+    import certifi
+
+    _ca_file: str | None = certifi.where()
+except (ImportError, OSError) as _cert_err:
+    logger.debug("Certifi root CA bundle unavailable: %s", _cert_err)
+    _ca_file = None
+
+try:
     from pymongo import MongoClient, UpdateOne
     from pymongo.errors import PyMongoError
 
@@ -84,15 +92,17 @@ def get_mongodb_client() -> Any | None:
         if now - _last_connect_attempt < _CONNECT_RETRY_INTERVAL:
             return None
         uri = get_mongodb_uri()
+        client_kwargs: dict[str, Any] = {
+            "serverSelectionTimeoutMS": 5000,
+            "connectTimeoutMS": 5000,
+            "socketTimeoutMS": 10000,
+            "maxPoolSize": 20,
+            "minPoolSize": 1,
+        }
+        if _ca_file:
+            client_kwargs["tlsCAFile"] = _ca_file
         try:
-            c = MongoClient(
-                uri,
-                serverSelectionTimeoutMS=5000,
-                connectTimeoutMS=5000,
-                socketTimeoutMS=10000,
-                maxPoolSize=20,
-                minPoolSize=1,
-            )
+            c = MongoClient(uri, **client_kwargs)
             # Validate connection with ping probe
             c.admin.command("ping")
             _client = c

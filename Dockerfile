@@ -27,6 +27,8 @@ FROM python:3.11-slim AS runtime
 
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+
 ENV PYTHONUNBUFFERED=1 \
     PATH=/root/.local/bin:$PATH \
     PORT=8000
