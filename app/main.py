@@ -39,7 +39,7 @@ from app.intake_extraction import (
     perform_intake_extraction,
 )
 from app.retrieval import KBRetriever
-from app.scheduler import start_daily_digest_scheduler
+from app.scheduler import get_digest_time_window, start_daily_digest_scheduler
 from app.schemas import (
     ApprovalStatusEnum,
     BatchIngestResponse,
@@ -1055,8 +1055,37 @@ def ops_get_pending() -> dict[str, Any]:
 
 
 @app.post("/ops/approvals/send-digest")
-def ops_send_digest() -> dict[str, Any]:
-    digest = generate_batch_digest()
+def ops_send_digest(
+    slot: str
+    | None = Query(None, description="Optional slot override ('9am' or '3pm')"),
+    start_time: str
+    | None = Query(None, description="Optional start datetime string filter"),
+    end_time: str
+    | None = Query(None, description="Optional end datetime string filter"),
+) -> dict[str, Any]:
+    if start_time or end_time:
+        slot_label = "Custom"
+        if slot:
+            slot_label = "9:00 AM" if "9" in slot else "3:00 PM"
+        digest = generate_batch_digest(
+            start_time=start_time,
+            end_time=end_time,
+            slot_label=slot_label,
+        )
+    elif slot:
+        now = datetime.now()
+        if "9" in slot:
+            now_for_slot = datetime(now.year, now.month, now.day, 9, 0, 0)
+        else:
+            now_for_slot = datetime(now.year, now.month, now.day, 15, 0, 0)
+        start_dt, end_dt, slot_label = get_digest_time_window(now_for_slot)
+        digest = generate_batch_digest(
+            start_time=start_dt,
+            end_time=end_dt,
+            slot_label=slot_label,
+        )
+    else:
+        digest = generate_batch_digest()
     return digest
 
 

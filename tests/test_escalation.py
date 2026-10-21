@@ -204,18 +204,41 @@ def test_escalation_alert_contains_html_approve_reject_buttons(monkeypatch):
     )
 
 
-def test_escalation_alert_non_billing_category_suppressed():
-    non_billing_ticket = {
-        "ticket_id": "TCK-LOGIN-URGENT",
-        "customer_name": "Login User",
-        "category": "Login",
-        "priority": "urgent",
-        "amount": 0.0,
-        "reason": "Locked out of 2FA",
-    }
-    alert = send_escalation_alert(non_billing_ticket)
-    assert alert["dispatched"] is False
-    assert "outside current escalation scope" in alert["reason"]
+def test_escalation_alert_all_categories_when_urgent(monkeypatch):
+    monkeypatch.setenv("ESCALATION_MANAGER_EMAIL", "manager@company.com")
+    categories = ["Technical", "Login", "Shipping", "Account", "Billing", "Refunds"]
+    for cat in categories:
+        ticket = {
+            "ticket_id": f"TCK-{cat.upper()}-01",
+            "customer_name": f"{cat} User",
+            "category": cat,
+            "priority": "urgent",
+            "amount": 0.0,
+            "reason": f"Urgent issue in {cat}",
+        }
+        alert = send_escalation_alert(ticket, dispatch_smtp=False)
+        assert alert["dispatched"] is True, f"Failed for category {cat}"
+        assert alert["recipient"] == "manager@company.com"
+        assert f"TCK-{cat.upper()}-01" in alert["subject"]
+        assert f"Category:      {cat}" in alert["body"]
+        assert "http://localhost:8000/ops/approvals/action" in alert["body"]
+        assert "http://localhost:8000/ops/approvals/action" in alert["html_body"]
+
+
+def test_escalation_alert_non_urgent_all_categories_suppressed():
+    categories = ["Technical", "Login", "Shipping", "Account"]
+    for cat in categories:
+        ticket = {
+            "ticket_id": f"TCK-{cat.upper()}-LOW",
+            "customer_name": f"{cat} Normal User",
+            "category": cat,
+            "priority": "normal",
+            "amount": 0.0,
+            "reason": f"Normal question in {cat}",
+        }
+        alert = send_escalation_alert(ticket, dispatch_smtp=False)
+        assert alert["dispatched"] is False
+        assert "Not an urgent ticket" in alert["reason"]
 
 
 def test_batch_ingest_dispatches_single_digest_email(tmp_path, monkeypatch):

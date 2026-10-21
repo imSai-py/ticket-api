@@ -340,14 +340,6 @@ def send_escalation_alert(
         raw_amt = ticket.get("refund_amount") or ticket.get("amount") or 0.0
         reason = ticket.get("reason", "No reason provided")
 
-    # Scope rule: only Billing/Refund tickets trigger manager escalation alerts
-    if not is_billing_category(category):
-        return {
-            "dispatched": False,
-            "reason": f"Non-billing category '{category}' outside current escalation scope",
-            "ticket_id": ticket_id,
-        }
-
     try:
         amount = float(str(raw_amt).replace("$", "").replace(",", "").strip() or 0.0)
     except ValueError:
