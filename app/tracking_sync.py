@@ -238,6 +238,19 @@ def _read_all(
     csv_path: str, max_retries: int = 3, retry_delay: float = 0.05
 ) -> list[dict[str, Any]]:
     """Read all rows from the tracking CSV file with bidirectional alias mapping and retry backoff."""
+    try:
+        from app.db import fetch_all_tracking_records, is_mongodb_enabled
+
+        if (
+            is_mongodb_enabled()
+            and Path(csv_path).resolve() == Path(get_ops_tracking_path()).resolve()
+        ):
+            mongo_records = fetch_all_tracking_records()
+            if mongo_records:
+                return mongo_records
+    except (OSError, KeyError, ValueError) as mongo_read_err:
+        logger.debug("MongoDB tracking records read fallback: %s", mongo_read_err)
+
     _ensure_file_exists(csv_path)
     for attempt in range(max_retries):
         try:
@@ -304,6 +317,7 @@ def _read_all(
                 f"The spreadsheet file '{csv_path}' is currently open in Microsoft Excel or another program. "
                 "Please close the file in Excel and click Triage Ticket again."
             ) from err
+
     return []
 
 
@@ -315,13 +329,15 @@ def _write_all(
 ) -> None:
     """Write all rows back to the tracking CSV file with retry backoff."""
     _ensure_file_exists(csv_path)
+    written = False
     for attempt in range(max_retries):
         try:
             with open(csv_path, mode="w", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=FIELDNAMES, extrasaction="ignore")
                 writer.writeheader()
                 writer.writerows(rows)
-            return
+            written = True
+            break
         except PermissionError as err:
             if attempt < max_retries - 1:
                 time.sleep(retry_delay * (2**attempt))
@@ -335,6 +351,25 @@ def _write_all(
                 f"The spreadsheet file '{csv_path}' is currently open in Microsoft Excel or another program. "
                 "Please close the file in Excel and click Triage Ticket again."
             ) from err
+
+    if written:
+        try:
+            from app.db import (
+                clear_tracking_records,
+                is_mongodb_enabled,
+                upsert_tracking_records_batch,
+            )
+
+            if (
+                is_mongodb_enabled()
+                and Path(csv_path).resolve() == Path(get_ops_tracking_path()).resolve()
+            ):
+                if not rows:
+                    clear_tracking_records()
+                else:
+                    upsert_tracking_records_batch(rows)
+        except (OSError, KeyError, ValueError) as mongo_write_err:
+            logger.warning("MongoDB tracking sync write failed: %s", mongo_write_err)
 
 
 def parse_label_tokens(labels_val: Any) -> set[str]:
@@ -419,6 +454,13 @@ def get_next_ticket_id(csv_path: str | None = None) -> str:
     max_sample = _find_max_ticket_number(sample_path)
     max_tracking = _find_max_ticket_number(tracking_path)
     highest = max(max_sample, max_tracking)
+    try:
+        from app.db import get_max_ticket_number_from_db, is_mongodb_enabled
+
+        if is_mongodb_enabled():
+            highest = max(highest, get_max_ticket_number_from_db())
+    except (OSError, KeyError, ValueError) as mongo_err:
+        logger.debug("MongoDB max ticket lookup fallback: %s", mongo_err)
     return f"TCK-{highest + 1}"
 
 
@@ -940,6 +982,13 @@ def sync_tickets_batch_to_spreadsheet(
     max_sample = _find_max_ticket_number(sample_path)
     max_tracking = _find_max_ticket_number(path)
     max_num = max(max_sample, max_tracking)
+    try:
+        from app.db import get_max_ticket_number_from_db, is_mongodb_enabled
+
+        if is_mongodb_enabled():
+            max_num = max(max_num, get_max_ticket_number_from_db())
+    except (OSError, KeyError, ValueError) as mongo_err:
+        logger.debug("MongoDB batch max ticket lookup fallback: %s", mongo_err)
 
     synced_records: list[dict[str, Any]] = []
 

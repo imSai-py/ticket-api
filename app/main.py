@@ -154,6 +154,27 @@ ALLOWED_ORIGINS = (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application startup and shutdown lifecycle tasks."""
+    try:
+        from app.db import (
+            fetch_all_tickets,
+            is_mongodb_enabled,
+            seed_initial_data_if_empty,
+        )
+
+        if is_mongodb_enabled():
+            seed_initial_data_if_empty(seed_tickets_path=DATA_PATH)
+            db_tickets = fetch_all_tickets()
+            if db_tickets:
+                global TICKETS
+                TICKETS = db_tickets
+                logger.info(
+                    "Loaded %d tickets from MongoDB Atlas on startup.", len(TICKETS)
+                )
+    except (OSError, KeyError, ValueError) as mongo_init_err:
+        logger.warning(
+            "MongoDB lifespan initialization skipped or failed: %s", mongo_init_err
+        )
+
     scheduler_task = asyncio.create_task(start_daily_digest_scheduler())
     try:
         yield
@@ -163,6 +184,12 @@ async def lifespan(app: FastAPI):
             await scheduler_task
         except asyncio.CancelledError:
             pass
+        try:
+            from app.db import close_mongodb_client
+
+            close_mongodb_client()
+        except (OSError, KeyError, ValueError) as mongo_close_err:
+            logger.debug("MongoDB client close error: %s", mongo_close_err)
 
 
 app = FastAPI(title="ticket-api", lifespan=lifespan)
@@ -263,19 +290,36 @@ def health_check() -> JSONResponse:
         is_healthy = False
         checks["digest_scheduler"] = "error: digest scheduler not ready"
 
+    # 5. MongoDB Atlas cloud persistence probe
+    try:
+        from app.db import check_mongodb_health, is_mongodb_enabled
+
+        if is_mongodb_enabled():
+            mongo_ok, mongo_msg = check_mongodb_health()
+            checks["mongodb"] = mongo_msg
+            if not mongo_ok:
+                is_healthy = False
+    except (OSError, KeyError, ValueError) as mongo_probe_err:
+        checks["mongodb"] = f"error: {mongo_probe_err}"
+        is_healthy = False
+
     status_str = "healthy" if is_healthy else "degraded"
     status_code = 200 if is_healthy else 503
 
+    health_payload: dict[str, Any] = {
+        "status": status_str,
+        "version": "1.0.0",
+        "storage": checks["storage"],
+        "tickets_data": checks["tickets_data"],
+        "knowledge_base": checks["knowledge_base"],
+        "digest_scheduler": checks["digest_scheduler"],
+    }
+    if "mongodb" in checks:
+        health_payload["mongodb"] = checks["mongodb"]
+
     return JSONResponse(
         status_code=status_code,
-        content={
-            "status": status_str,
-            "version": "1.0.0",
-            "storage": checks["storage"],
-            "tickets_data": checks["tickets_data"],
-            "knowledge_base": checks["knowledge_base"],
-            "digest_scheduler": checks["digest_scheduler"],
-        },
+        content=health_payload,
     )
 
 
@@ -318,6 +362,15 @@ def get_dataset_tickets(source: str | None = None) -> list[dict[str, Any]]:
         return load_tickets(HELPDESK_EXPORT_PATH)
     if source == "sample" and DEFAULT_DATA_PATH.exists():
         return load_tickets(DEFAULT_DATA_PATH)
+    try:
+        from app.db import fetch_all_tickets, is_mongodb_enabled
+
+        if is_mongodb_enabled():
+            mongo_tickets = fetch_all_tickets()
+            if mongo_tickets:
+                return mongo_tickets
+    except (OSError, KeyError, ValueError) as mongo_fetch_err:
+        logger.debug("MongoDB dataset fetch fallback: %s", mongo_fetch_err)
     return TICKETS
 
 
@@ -356,6 +409,15 @@ def list_tickets(
 
 @app.get("/tickets/{ticket_id}")
 def get_ticket(ticket_id: str):
+    try:
+        from app.db import fetch_ticket_by_id, is_mongodb_enabled
+
+        if is_mongodb_enabled():
+            doc = fetch_ticket_by_id(ticket_id)
+            if doc:
+                return to_public_ticket_dict(doc)
+    except (OSError, KeyError, ValueError) as mongo_get_err:
+        logger.debug("MongoDB ticket get fallback: %s", mongo_get_err)
     for t in TICKETS:
         if t["ticket_id"] == ticket_id:
             return to_public_ticket_dict(t)
@@ -421,6 +483,13 @@ def ops_sync_ticket(req: SyncTicketRequest) -> dict[str, Any]:
                 "reason": row["reason"],
             },
         )
+    try:
+        from app.db import is_mongodb_enabled, upsert_ticket
+
+        if is_mongodb_enabled():
+            upsert_ticket(existing if existing else TICKETS[0])
+    except (OSError, KeyError, ValueError) as mongo_sync_err:
+        logger.warning("MongoDB ops sync ticket persistence failed: %s", mongo_sync_err)
     resp: dict[str, Any] = {"ticket": row, "escalation_alert": alert}
     if is_resubmit and resubmission_alert is not None:
         resp["resubmission_notification"] = resubmission_alert
@@ -486,6 +555,13 @@ def clear_tracking_sheet() -> JSONResponse:
     """Clear all operational tracking sheet records to start completely fresh."""
     _write_all(get_ops_tracking_path(), [])
     _PROCESSED_QUERY_FINGERPRINTS.clear()
+    try:
+        from app.db import clear_tracking_records, is_mongodb_enabled
+
+        if is_mongodb_enabled():
+            clear_tracking_records()
+    except (OSError, KeyError, ValueError) as mongo_clear_err:
+        logger.warning("MongoDB clear tracking records failed: %s", mongo_clear_err)
     return JSONResponse(
         status_code=200,
         content={
@@ -796,6 +872,15 @@ def ingest_helpdesk_query(
                 "reason": row["reason"],
             },
         )
+    try:
+        from app.db import is_mongodb_enabled, upsert_ticket
+
+        if is_mongodb_enabled():
+            upsert_ticket(existing if existing else TICKETS[0])
+    except (OSError, KeyError, ValueError) as mongo_ingest_err:
+        logger.warning(
+            "MongoDB ingest helpdesk ticket persistence failed: %s", mongo_ingest_err
+        )
 
     return HelpdeskQueryIngestResponse(
         status="success",
@@ -938,6 +1023,15 @@ async def ingest_batch_csv(
                     "refund_amount": row.get("refund_amount"),
                 },
             )
+    try:
+        from app.db import is_mongodb_enabled, upsert_tickets_batch
+
+        if is_mongodb_enabled():
+            upsert_tickets_batch(synced_records)
+    except (OSError, KeyError, ValueError) as mongo_batch_err:
+        logger.warning(
+            "MongoDB ingest batch ticket persistence failed: %s", mongo_batch_err
+        )
 
     return BatchIngestResponse(
         status="success",
@@ -1022,6 +1116,15 @@ def ops_approval_action(
     for t in TICKETS:
         if t.get("ticket_id") == clean_ticket_id:
             t["status"] = approval_status.value
+            try:
+                from app.db import is_mongodb_enabled, upsert_ticket
+
+                if is_mongodb_enabled():
+                    upsert_ticket(t)
+            except (OSError, KeyError, ValueError) as mongo_action_err:
+                logger.warning(
+                    "MongoDB ticket status update failed: %s", mongo_action_err
+                )
             break
 
     if approval_status == ApprovalStatusEnum.NEEDS_INFO:
@@ -1116,6 +1219,13 @@ def triage(req: TriageRequest) -> TriageResponse:
                     "reason": row["reason"],
                 },
             )
+        try:
+            from app.db import is_mongodb_enabled, upsert_ticket
+
+            if is_mongodb_enabled():
+                upsert_ticket(existing if existing else TICKETS[0])
+        except (OSError, KeyError, ValueError) as mongo_triage_err:
+            logger.warning("MongoDB triage sync failed: %s", mongo_triage_err)
         if str(res.priority) == "urgent":
             send_escalation_alert(row)
     return res
