@@ -701,3 +701,87 @@ def test_dispatch_smtp_email_diagnoses_network_unreachable_on_cloud_hosts(monkey
     assert res["mode"] == "smtp_error"
     assert "Network is unreachable" in res["error"]
     assert "Render Free Tier" in res.get("diagnosis", "")
+
+
+def test_get_base_url_resolution(monkeypatch):
+    """Verify get_base_url respects explicit args, BASE_URL, RENDER_EXTERNAL_URL, and Render cloud fallback."""
+    from app.escalation import (
+        RENDER_PRODUCTION_URL,
+        get_base_url,
+    )
+
+    # 1. Explicit argument overrides all
+    monkeypatch.setenv("BASE_URL", "https://override.example.com")
+    monkeypatch.setenv("RENDER_EXTERNAL_URL", "https://render.example.com")
+    assert (
+        get_base_url("https://explicit.example.com/") == "https://explicit.example.com"
+    )
+
+    # 2. BASE_URL environment variable
+    monkeypatch.delenv("RENDER_EXTERNAL_URL", raising=False)
+    monkeypatch.delenv("RENDER", raising=False)
+    assert get_base_url() == "https://override.example.com"
+
+    # 3. RENDER_EXTERNAL_URL environment variable
+    monkeypatch.delenv("BASE_URL", raising=False)
+    monkeypatch.setenv("RENDER_EXTERNAL_URL", "https://ticket-api-auto.onrender.com/")
+    assert get_base_url() == "https://ticket-api-auto.onrender.com"
+
+    # 4. Render cloud environment detection (RENDER=true)
+    monkeypatch.delenv("RENDER_EXTERNAL_URL", raising=False)
+    monkeypatch.setenv("RENDER", "true")
+    assert get_base_url() == RENDER_PRODUCTION_URL
+
+    # 5. Localhost fallback
+    monkeypatch.delenv("RENDER", raising=False)
+    monkeypatch.delenv("RENDER_SERVICE_ID", raising=False)
+    assert get_base_url() == "http://localhost:8000"
+
+
+def test_build_approval_action_urls_in_production(monkeypatch):
+    """Verify approval action URLs do not point to localhost when running in production."""
+    from app.escalation import build_approval_action_urls
+
+    monkeypatch.setenv("BASE_URL", "https://ticket-api-jl9f.onrender.com")
+    urls = build_approval_action_urls("TCK-PROD-001")
+
+    assert (
+        urls.approve_url
+        == "https://ticket-api-jl9f.onrender.com/ops/approvals/action?ticket_id=TCK-PROD-001&status=Approved"
+    )
+    assert (
+        urls.reject_url
+        == "https://ticket-api-jl9f.onrender.com/ops/approvals/action?ticket_id=TCK-PROD-001&status=Rejected"
+    )
+    assert (
+        urls.need_info_url
+        == "https://ticket-api-jl9f.onrender.com/ops/approvals/action?ticket_id=TCK-PROD-001&status=needs_info"
+    )
+
+
+def test_send_escalation_alert_contains_production_action_urls(monkeypatch):
+    """Verify urgent escalation emails send production URLs instead of localhost."""
+    from app.escalation import send_escalation_alert
+
+    monkeypatch.setenv("BASE_URL", "https://ticket-api-jl9f.onrender.com")
+    ticket = {
+        "ticket_id": "TCK-ALERT-001",
+        "customer_name": "Valued Client",
+        "category": "Billing",
+        "priority": "urgent",
+        "amount": 550.0,
+        "reason": "Accidental double subscription charge",
+    }
+    alert = send_escalation_alert(ticket, dispatch_smtp=False)
+
+    assert alert["dispatched"] is True
+    assert (
+        "https://ticket-api-jl9f.onrender.com/ops/approvals/action?ticket_id=TCK-ALERT-001&status=Approved"
+        in alert["body"]
+    )
+    assert (
+        'href="https://ticket-api-jl9f.onrender.com/ops/approvals/action?ticket_id=TCK-ALERT-001&status=Approved"'
+        in alert["html_body"]
+    )
+    assert "http://localhost:8000" not in alert["body"]
+    assert "http://localhost:8000" not in alert["html_body"]
