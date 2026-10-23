@@ -15,9 +15,13 @@ describe("App Triage Component", () => {
     expect(
       screen.getByRole("button", { name: /ingest & sync to spreadsheet/i })
     ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /batch helpdesk csv/i }));
     expect(
       screen.getByRole("button", { name: /upload & ingest batch csv/i })
     ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /support agent re-submission/i }));
     expect(
       screen.getByRole("button", { name: /re-submit ticket/i })
     ).toBeInTheDocument();
@@ -101,6 +105,7 @@ describe("App Triage Component", () => {
 
   it("loads sample batch CSV and displays selected file name", () => {
     render(<App />);
+    fireEvent.click(screen.getByRole("tab", { name: /batch helpdesk csv/i }));
     fireEvent.click(screen.getByRole("button", { name: /load sample batch csv/i }));
 
     expect(screen.getByText(/selected: helpdesk_export_sample\.csv/i)).toBeInTheDocument();
@@ -153,6 +158,7 @@ describe("App Triage Component", () => {
 
     render(<App />);
 
+    fireEvent.click(screen.getByRole("tab", { name: /batch helpdesk csv/i }));
     fireEvent.click(screen.getByRole("button", { name: /load sample batch csv/i }));
     fireEvent.click(screen.getByRole("button", { name: /upload & ingest batch csv/i }));
 
@@ -176,6 +182,7 @@ describe("App Triage Component", () => {
 
     render(<App />);
 
+    fireEvent.click(screen.getByRole("tab", { name: /support agent re-submission/i }));
     fireEvent.change(screen.getByLabelText(/ticket id for re-submission/i), {
       target: { value: "TCK-1001" },
     });
@@ -206,6 +213,7 @@ describe("App Triage Component", () => {
 
       render(<App />);
 
+      fireEvent.click(screen.getByRole("tab", { name: /support agent re-submission/i }));
       fireEvent.change(screen.getByLabelText(/ticket id for re-submission/i), {
         target: { value: "TCK-1002" },
       });
@@ -376,6 +384,7 @@ describe("App Triage Component", () => {
 
     render(<App />);
 
+    fireEvent.click(screen.getByRole("tab", { name: /support agent re-submission/i }));
     // Check category dropdown exists with default option
     const categorySelect = screen.getByLabelText(/category for re-submission/i);
     expect(categorySelect).toBeInTheDocument();
@@ -442,6 +451,7 @@ describe("App Triage Component", () => {
 
     render(<App />);
 
+    fireEvent.click(screen.getByRole("tab", { name: /support agent re-submission/i }));
     fireEvent.change(screen.getByLabelText(/ticket id for re-submission/i), {
       target: { value: "TCK-STATUS-1" },
     });
