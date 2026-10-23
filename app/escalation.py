@@ -21,11 +21,41 @@ def is_billing_category(category: Any) -> bool:
     return "billing" in val or "refund" in val
 
 
+RENDER_PRODUCTION_URL = "https://ticket-api-jl9f.onrender.com"
+
+
+def get_base_url(base_url: str | None = None) -> str:
+    """Resolve public base URL for actionable links (Render, env var, or local fallback).
+
+    Resolution priority:
+    1. Explicit base_url argument
+    2. BASE_URL environment variable
+    3. RENDER_EXTERNAL_URL environment variable (set automatically by Render web services)
+    4. Render production URL if running inside Render environment (RENDER or RENDER_SERVICE_ID)
+    5. Fallback to local development server: http://localhost:8000
+    """
+    if base_url and str(base_url).strip():
+        return str(base_url).strip().rstrip("/")
+
+    env_base = os.getenv("BASE_URL", "").strip()
+    if env_base:
+        return env_base.rstrip("/")
+
+    render_url = os.getenv("RENDER_EXTERNAL_URL", "").strip()
+    if render_url:
+        return render_url.rstrip("/")
+
+    if os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID"):
+        return RENDER_PRODUCTION_URL
+
+    return "http://localhost:8000"
+
+
 def build_approval_action_urls(
     ticket_id: str, base_url: str | None = None
 ) -> ApprovalActionUrls:
     """Build standardized query-parameter approval action URLs."""
-    root = (base_url or os.getenv("BASE_URL") or "http://localhost:8000").rstrip("/")
+    root = get_base_url(base_url)
     return ApprovalActionUrls(
         approve_url=f"{root}/ops/approvals/action?ticket_id={ticket_id}&status=Approved",
         reject_url=f"{root}/ops/approvals/action?ticket_id={ticket_id}&status=Rejected",
@@ -366,7 +396,7 @@ def send_escalation_alert(
         else "URGENT TICKET ESCALATED FOR MANAGEMENT"
     )
 
-    base_url = (os.getenv("BASE_URL") or "http://localhost:8000").rstrip("/")
+    base_url = get_base_url()
     action_urls = build_approval_action_urls(ticket_id, base_url)
     approve_url = action_urls.approve_url
     reject_url = action_urls.reject_url
@@ -762,7 +792,7 @@ def send_resubmission_notification(
         or "manager@company.com"
     )
 
-    base_url = (os.getenv("BASE_URL") or "http://localhost:8000").rstrip("/")
+    base_url = get_base_url()
     action_urls = build_approval_action_urls(ticket_id, base_url)
     approve_url = action_urls.approve_url
     reject_url = action_urls.reject_url

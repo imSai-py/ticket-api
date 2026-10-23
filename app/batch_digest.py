@@ -7,6 +7,7 @@ from typing import Any
 from app.escalation import (
     build_approval_action_urls,
     dispatch_smtp_email,
+    get_base_url,
 )
 from app.tracking_sync import (
     _is_needs_info_status,
@@ -124,7 +125,7 @@ def generate_batch_digest(
 
     header_line = f"{'Ticket ID':<12} | {'Customer':<20} | {'Category':<12} | {'Priority':<10} | {'Amount':<10} | {'Agent':<12} | {'Reason'}"
     sep_line = "-" * 110
-    base_url = (os.getenv("BASE_URL") or "http://localhost:8000").rstrip("/")
+    base_url = get_base_url()
     data_lines = []
     html_rows = []
 
