@@ -522,7 +522,7 @@ TCK-5087,2026-10-05 14:10,open,urgent,Refunds,riya,lisa.wong@example.com,escalat
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem", color: "#cbd5e1" }}>
           <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#10b981" }} />
-          <span>Live Dual-Storage Sync Connected (CSV & MongoDB)</span>
+          <span>All Changes Saved Automatically</span>
         </div>
       </nav>
 
@@ -548,7 +548,7 @@ TCK-5087,2026-10-05 14:10,open,urgent,Refunds,riya,lisa.wong@example.com,escalat
               onClick={() => setActiveDeskTab("ingest")}
               className={`segmented-tab-btn ${activeDeskTab === "ingest" ? "active-ingest" : ""}`}
             >
-              ⚡ Live Helpdesk Query
+              ⚡ Live Query
             </button>
             <button
               type="button"
@@ -557,7 +557,7 @@ TCK-5087,2026-10-05 14:10,open,urgent,Refunds,riya,lisa.wong@example.com,escalat
               onClick={() => setActiveDeskTab("batch")}
               className={`segmented-tab-btn ${activeDeskTab === "batch" ? "active-batch" : ""}`}
             >
-              📁 Batch Helpdesk CSV
+              📁 Batch CSV
             </button>
             <button
               type="button"
@@ -566,7 +566,7 @@ TCK-5087,2026-10-05 14:10,open,urgent,Refunds,riya,lisa.wong@example.com,escalat
               onClick={() => setActiveDeskTab("resubmit")}
               className={`segmented-tab-btn ${activeDeskTab === "resubmit" ? "active-resubmit" : ""}`}
             >
-              🔄 Support Agent Re-submission
+              🔄 Re-submit Ticket
             </button>
           </div>
 
@@ -1268,7 +1268,7 @@ TCK-5087,2026-10-05 14:10,open,urgent,Refunds,riya,lisa.wong@example.com,escalat
                   📊 Live Help Desk Tracking Sheet (Spreadsheet View)
                 </h2>
                 <p style={{ margin: "0.25rem 0 0 0", color: "#4b5563", fontSize: "0.85rem" }}>
-                  Real-time dual synchronization with MongoDB Atlas and operational tracking CSV.
+                  Live customer tickets, priorities, and refund requests updated in real time.
                 </p>
               </div>
               <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
