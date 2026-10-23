@@ -36,6 +36,58 @@ body {
   gap: 1.5rem;
 }
 
+.segmented-tab-bar {
+  display: flex;
+  background: #e2e8f0;
+  border-radius: 8px;
+  padding: 4px;
+  margin-bottom: 0.25rem;
+  gap: 4px;
+}
+
+.segmented-tab-btn {
+  flex: 1;
+  border: none;
+  border-radius: 6px;
+  padding: 0.65rem 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  transition: all 0.15s ease;
+  background: transparent;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.segmented-tab-btn:hover {
+  color: #0f172a;
+}
+
+.segmented-tab-btn.active-ingest {
+  background: #ffffff;
+  color: #1e40af;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.segmented-tab-btn.active-batch {
+  background: #ffffff;
+  color: #065f46;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.segmented-tab-btn.active-resubmit {
+  background: #ffffff;
+  color: #0f766e;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
 .kpi-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));

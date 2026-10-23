@@ -109,6 +109,9 @@ export function App() {
   const [resubmitSuccess, setResubmitSuccess] = useState<string | null>(null);
   const resubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Active Desk Form Tab ("ingest" | "batch" | "resubmit")
+  const [activeDeskTab, setActiveDeskTab] = useState<"ingest" | "batch" | "resubmit">("ingest");
+
   // Live Tracking Spreadsheet state
   const [trackingRecords, setTrackingRecords] = useState<TrackingRecord[]>([]);
   const [trackingLoading, setTrackingLoading] = useState(false);
@@ -128,6 +131,7 @@ export function App() {
 
   const handleResubmitTicketIdChange = (id: string) => {
     setResubmitTicketId(id);
+    setActiveDeskTab("resubmit");
     const trimmed = id.trim();
     if (!trimmed) return;
     const match = trackingRecords.find(
@@ -329,6 +333,7 @@ export function App() {
   };
 
   const handleLoadSampleBatch = () => {
+    setActiveDeskTab("batch");
     const sampleCsvContent = `Ticket ID,Created At,Status,Priority,Category,Assigned To,Customer Email,Labels,Refund Amount
 TCK-5007,2026-10-05 13:05,in_progress,urgent,Refunds,riya,omar.ali@example.com,escalated,480.00
 TCK-5084,2026-10-05 13:21,in_progress,normal,Login,riya,jo.marsh@example.com,,0.00
@@ -534,8 +539,40 @@ TCK-5087,2026-10-05 14:10,open,urgent,Refunds,riya,lisa.wong@example.com,escalat
       <div className="command-center-grid">
         {/* LEFT COLUMN: Intake & Action Workspace */}
         <div className="desk-pane">
+          {/* Segmented Action Tab Switcher */}
+          <div className="segmented-tab-bar" role="tablist" aria-label="Triage Action Tabs">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeDeskTab === "ingest"}
+              onClick={() => setActiveDeskTab("ingest")}
+              className={`segmented-tab-btn ${activeDeskTab === "ingest" ? "active-ingest" : ""}`}
+            >
+              ⚡ Live Helpdesk Query
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeDeskTab === "batch"}
+              onClick={() => setActiveDeskTab("batch")}
+              className={`segmented-tab-btn ${activeDeskTab === "batch" ? "active-batch" : ""}`}
+            >
+              📁 Batch Helpdesk CSV
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeDeskTab === "resubmit"}
+              onClick={() => setActiveDeskTab("resubmit")}
+              className={`segmented-tab-btn ${activeDeskTab === "resubmit" ? "active-resubmit" : ""}`}
+            >
+              🔄 Support Agent Re-submission
+            </button>
+          </div>
+
           {/* Card 1: Live Helpdesk Query Ingest Card */}
-          <div className="card" style={{ border: "2px solid #2563eb" }}>
+          {activeDeskTab === "ingest" && (
+            <div className="card" style={{ border: "2px solid #2563eb" }}>
             <div
               style={{
                 display: "flex",
@@ -865,8 +902,11 @@ TCK-5087,2026-10-05 14:10,open,urgent,Refunds,riya,lisa.wong@example.com,escalat
             )}
           </div>
 
+          )}
+
           {/* Card 2: Batch CSV Ingest Card */}
-          <div className="card" style={{ border: "2px solid #059669" }}>
+          {activeDeskTab === "batch" && (
+            <div className="card" style={{ border: "2px solid #059669" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" }}>
               <div>
                 <h2 style={{ margin: 0, color: "#065f46", fontSize: "1.15rem" }}>
@@ -1035,8 +1075,11 @@ TCK-5087,2026-10-05 14:10,open,urgent,Refunds,riya,lisa.wong@example.com,escalat
             )}
           </div>
 
+          )}
+
           {/* Card 3: Support Agent Re-submission Card */}
-          <div className="card" style={{ border: "2px solid #0d9488" }}>
+          {activeDeskTab === "resubmit" && (
+            <div className="card" style={{ border: "2px solid #0d9488" }}>
             <h2 style={{ margin: "0 0 0.5rem 0", color: "#0f766e", fontSize: "1.15rem" }}>
               🔄 Support Agent Ticket Re-submission & Verification
             </h2>
@@ -1183,6 +1226,7 @@ TCK-5087,2026-10-05 14:10,open,urgent,Refunds,riya,lisa.wong@example.com,escalat
               </div>
             )}
           </div>
+          )}
         </div>
 
         {/* RIGHT COLUMN: Real-Time Operations Monitor & Tracking Table */}
@@ -1456,8 +1500,11 @@ TCK-5087,2026-10-05 14:10,open,urgent,Refunds,riya,lisa.wong@example.com,escalat
                               <button
                                 type="button"
                                 onClick={() => {
+                                  setActiveDeskTab("resubmit");
                                   handleResubmitTicketIdChange(r.ticket_id);
-                                  document.getElementById("resubmit-context")?.focus();
+                                  setTimeout(() => {
+                                    document.getElementById("resubmit-context")?.focus();
+                                  }, 50);
                                 }}
                                 style={{
                                   background: "#0d9488",
