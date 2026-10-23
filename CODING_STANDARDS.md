@@ -12,7 +12,17 @@
 - **File Lock Contention:** File operations on tabular files must handle lock contention (e.g., `PermissionError` / `SpreadsheetLockedError`) gracefully with user-friendly remediation messages.
 - **Enum Representation:** Always serialize enum attributes using `.value` (never `Enum.name`).
 
-## 3. Pull Request (PR) Lifecycle & Timing
+## 3. Actionable Hyperlink & Cloud URL Standards
+- **URL Resolution Helper:** All user-facing emails, alerts, and notification templates containing action buttons or review links must resolve the domain via `get_base_url()`.
+- **Prohibited Localhost Fallbacks:** Hardcoded `http://localhost:8000` fallbacks in live notification builders are prohibited. The resolution hierarchy must strictly honor:
+  1. Explicit `base_url` parameter
+  2. `BASE_URL` environment variable
+  3. `RENDER_EXTERNAL_URL` environment variable (cloud platform default)
+  4. Platform detection flags (`RENDER` or `RENDER_SERVICE_ID`)
+  5. Localhost fallback exclusively for developer test suites
+- **Automated Verification:** Any endpoint or function constructing approval action URLs must be covered by regression tests asserting that production/cloud URLs are rendered without `localhost`.
+
+## 4. Pull Request (PR) Lifecycle & Timing
 - **PR Timing Policy:**
   - Slices/tickets are implemented, verified, and committed sequentially on the integration/feature branch.
   - Open a Pull Request only when all tickets in the specification are fully implemented and verified, or when explicitly requested by the user.
@@ -51,7 +61,7 @@
 **Blast Radius:** <isolated / narrow / medium / broad with scope assessment>
 ```
 
-## 4. Ticket Completion Protocol
+## 5. Ticket Completion Protocol
 Upon completing each individual ticket:
 1. Verify with tests and commit to the branch.
 2. Close or comment on the associated issue.
